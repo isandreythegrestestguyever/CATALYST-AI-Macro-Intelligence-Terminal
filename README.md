@@ -1,37 +1,70 @@
 # CATALYST
 
-CATALYST is an evidence-first macro research workspace for Nasdaq-100 futures and gold. The site connects to public source APIs on demand and supports a reproducible price-only research study on user-supplied instrument history. It is not an automatic trading system.
+CATALYST is a macro research terminal for Nasdaq futures and gold. It connects to public news and macro sources and includes a server-side adapter for dated CME futures history. Forecasts remain hidden until a user-provided series passes the app's chronological evaluation gate.
 
-## Working features
+## Why the page can say “insufficient evidence”
 
-- Switch between NQ, MNQ, GC, MGC, and XAUUSD. These instruments remain distinct; the selected label must match the imported file.
-- Fetch source-linked news documents from the GDELT DOC 2.0 API. The site displays publisher titles, URLs, source domain, country/language, and GDELT's seen time. Coverage is not treated as event verification, sentiment, or a trading signal.
-- Fetch daily nominal and real U.S. Treasury curve observations from the Treasury XML feed. The dashboard derives the 2s10s spread and daily yield changes from dated observations. These are descriptive daily context and do not enter the price-only model.
-- Bring a personal FRED API key in the browser to retrieve selected macro series and source-published economic release dates. The key stays in page memory and is sent directly to the St. Louis Fed API. It is not saved to local storage, uploaded to CATALYST, or included in the repository. Review and accept the linked FRED API terms before using the connector.
-- Import a dated close-price CSV. The file stays in the browser; the site charts observed prices, computes descriptive returns/volatility, and records a SHA-256 fingerprint for each research run.
-- Run an expanding-window three-class softmax baseline. Inputs are lagged log returns and past-only volatility/trend; labels use the selected future-bar horizon and user-entered neutral band/cost allowance. Horizon-overlapping observations are embargoed between training, calibration, and test partitions. The study reports fold-level out-of-sample Brier score, base-rate Brier, skill, log loss, and balanced accuracy. It suppresses current probabilities unless there are at least 100 holdout outcomes and the calibrated model beats the training base-rate Brier score.
-- Inspect 150 documented macro factor candidates. A factor changes from pending only when a supported source observation or derivation is available; it remains descriptive and contributes nothing to the price-only model.
-- Enter hypothetical scenario assumptions without presenting them as causal effects or guaranteed outcomes.
+The app does not invent a price, market regime, or probability. Its forecast begins in an abstaining state because there is no historical NQ/GC series or validated macro model in a fresh browser session. Fetch macro observations and market history, then run the Model Lab. The current classifier is a price-only research baseline, not the master-prompt goal of a validated macro forecast.
+
+## What works
+
+- GDELT public-document search, with source links, publisher, country/language, and GDELT's seen time. Coverage is not treated as fact verification or market impact.
+- U.S. Treasury daily nominal and real yield curves, with dated values, derived curve spreads, and daily changes.
+- FRED observations and release dates using a user-owned key entered in the browser. The page sends it to FRED and keeps it in tab memory; current FRED observations are not reconstructed ALFRED vintages.
+- Databento CME futures historical OHLCV requests for NQ, MNQ, GC, and MGC through a local FastAPI service. The service estimates provider cost before download, keeps the key server-side, bounds date ranges, and makes the user confirm any non-zero estimate. Continuous-contract bars are unadjusted and can contain roll gaps.
+- XAUUSD remains distinct from CME futures and is marked unavailable until a spot provider is configured.
+- CSV or provider history can feed the local chart and the experimental expanding-window softmax baseline. It reports Brier score, base-rate Brier, log loss, balanced accuracy, fold date ranges, and a dataset digest. Probabilities are suppressed unless it has at least 100 holdout observations and beats the training base-rate Brier score.
+- A 150-candidate factor registry. Only factors with source observations become observed; none silently fills missing values or enters the price-only model.
 
 ## Run locally
 
-Open `index.html` from a static HTTP server so the factor registry can load. There is no build step or third-party runtime dependency. Live source fetches require browser network access. Treasury and GDELT are attempted without a key; FRED requires a user-owned key.
+1. Install Python 3.12 or newer.
+2. Copy `.env.example` to `.env` and enter your Databento key as `DATABENTO_API_KEY`. The key is read by the server and is never entered into the public webpage or committed to Git.
+3. Install dependencies and start the API:
 
-## Historical CSV format
+   ```sh
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   uvicorn catalyst_api.main:app --reload --port 8000
+   ```
 
-The importer accepts a header row with a date/time column and a close column. Common aliases include `timestamp`, `datetime`, `date`, `close`, `adj close`, `adj_close`, and `settle`. Dates must be parseable by the browser. Invalid rows are skipped and duplicate timestamps are de-duplicated. The selected instrument is recorded with the file; re-import after changing instrument. The horizon is measured in bars because the file's bar frequency is supplied by the user, not verified against an exchange calendar.
+4. In a second terminal, serve the website:
 
-## Not enabled
+   ```sh
+   python3 -m http.server 4173
+   ```
 
-- No licensed NQ/GC price feed, options/depth data, consensus calendar, scheduled ingestion, server, database, user accounts, or live execution.
-- FRED current observations are not point-in-time ALFRED vintages. They are displayed for context and excluded from historical forecasting.
-- The walk-forward classifier is experimental and price-only. Passing its explicit holdout gate does not establish stable predictive skill, macro causality, or tradable profitability. Results depend on the supplied series, bar frequency, label band, and cost assumption.
-- The FRED key and fetched data exist only in the current browser tab. This is a public project; never put a private key in source code or commit history.
+5. Open `http://localhost:4173`. In **Data sources**, keep the API address at `http://localhost:8000`, check the API, choose the instrument and dates, estimate cost, then explicitly approve a non-zero request before loading history. On the public GitHub Pages site, the API address can also point to a local service running on your computer; the browser may ask permission for the site to connect to localhost.
 
-## Deploy
+Alternatively, use `docker compose up --build` after creating `.env`.
 
-GitHub Pages publishes the repository root through `.github/workflows/pages.yml`: https://isandreythegrestestguyever.github.io/CATALYST-AI-Macro-Intelligence-Terminal/
+Databento historical access requires an account and API key. New accounts currently receive introductory data credits, but check your account's available balance, dataset costs, and licensing terms before downloading. This connector retrieves history; it does not provide a live stream. See the [official Databento quickstart](https://databento.com/docs/quickstart) and [historical API](https://databento.com/docs/api-historical?lang=python).
 
-## Architecture
+## Model Lab
 
-See [docs/architecture.md](docs/architecture.md) and [docs/decisions/0001-static-research-workspace.md](docs/decisions/0001-static-research-workspace.md). Provider outputs, observation dates, fetch times, and source links stay visible. The static architecture cannot preserve a server-side point-in-time store or safely share licensed API keys.
+Choose a valid instrument label, provide a close-price series or fetch one from Databento, and set a neutral move threshold plus a cost allowance in the instrument's price units. The horizon is measured in bars because the uploaded data's session calendar and frequency are not independently verified. Evaluation is experimental and does not establish tradable performance or macro causality.
+
+## Validate
+
+```sh
+node --check app.js
+python3 -m unittest discover -s tests -v
+git diff --check
+```
+
+## Still not implemented
+
+- Live/streaming CME quotes, trades, depth, or options; the current Databento connector is historical OHLCV only.
+- Point-in-time ALFRED release-vintage reconstruction, licensed release consensus/surprises, scheduled ingestion, persistent database, and authenticated multi-user service.
+- News extraction, deduplication/clustering, cross-source corroboration, historical event analogs, or a validated instrument-specific macro model.
+- Live spot-XAUUSD price source, exchange calendar, model artifacts, or automatic execution.
+
+The GitHub Pages deployment serves only the static frontend. The FastAPI service must run locally or be deployed separately with the provider key kept in server-side environment configuration.
+
+## Project files
+
+- `index.html`, `styles.css`, `app.js`: browser interface and local price-only research.
+- `catalyst_api/`: FastAPI source provider adapter.
+- `data/factors.json`: documented candidate factor registry.
+- `docs/architecture.md`: data flow, trust boundaries, and remaining work.

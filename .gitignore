@@ -10,3 +10,6 @@ coverage/
 *.parquet
 *.csv
 *.xlsx
+__pycache__/
+.pytest_cache/
+.venv/

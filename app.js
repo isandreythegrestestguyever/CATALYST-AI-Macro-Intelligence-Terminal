@@ -11,6 +11,7 @@
   };
   let imported = null;
   let resizeObserver;
+  let lastMarketEstimate = null;
   const macroObservations = [];
   const activeFactorValues = new Map();
   let factorGroups = [];
@@ -53,9 +54,18 @@
     const item = instruments[event.target.value];
     $("#instrumentName").textContent = item.name;
     if (imported) {
-      $("#priceCaption").textContent = `${imported.rows.length.toLocaleString()} imported observations · instrument label is user-selected`;
-      $("#chartUnit").textContent = `${item.unit} · user-supplied data`;
       clearCurrentStudy("Instrument changed; rerun the study after importing matching data.");
+      if (imported.instrument !== event.target.value) {
+        $("#lastPrice").textContent = "—";
+        $("#priceCaption").textContent = `History belongs to ${imported.instrument}; selected ${event.target.value}. Re-import matching data.`;
+        $("#chartUnit").textContent = `Instrument mismatch · source is ${imported.instrument}`;
+        $("#studySeriesName").textContent = `${imported.filename} · imported as ${imported.instrument}; re-import for ${event.target.value}`;
+      } else {
+        $("#lastPrice").textContent = imported.rows.at(-1).close.toLocaleString(undefined, { maximumFractionDigits: 4 });
+        $("#priceCaption").textContent = `${imported.rows.length.toLocaleString()} imported observations · ${imported.rows.at(-1).date.toISOString().slice(0, 10)} · ${imported.provider || "local file"}`;
+        $("#chartUnit").textContent = `${item.unit} · ${imported.provider || "user-supplied history"}`;
+        $("#studySeriesName").textContent = `${imported.filename} · ${imported.rows.length.toLocaleString()} bars · ${instruments[event.target.value].prefix}`;
+      }
       requestAnimationFrame(drawChart);
     }
   });
@@ -89,6 +99,7 @@
     $("#treasuryFetch").addEventListener("click", fetchTreasury);
     $("#fredFetch").addEventListener("click", fetchFred);
     $("#calendarRefresh").addEventListener("click", fetchReleaseCalendar);
+    initializeMarketProvider();
     $("#clearObservations").addEventListener("click", () => {
       macroObservations.length = 0; activeFactorValues.clear(); $("#fredKey").value = ""; renderObservations();
       $("#driverData").className = "driver-empty";
@@ -99,6 +110,105 @@
     });
     $("#newsRefresh").addEventListener("click", () => fetchNews($("#newsQuery").value, $("#newsWindow").value));
     $("#homeNewsRefresh").addEventListener("click", () => fetchNews(instrumentNewsQuery(), "7d", true));
+  }
+
+  function initializeMarketProvider() {
+    const today = new Date();
+    const start = new Date(today); start.setUTCDate(start.getUTCDate() - 3 * 365);
+    $("#marketStart").value = start.toISOString().slice(0, 10);
+    $("#marketEnd").value = today.toISOString().slice(0, 10);
+    $("#checkBackend").addEventListener("click", checkBackend);
+    $("#estimateMarket").addEventListener("click", estimateMarketHistory);
+    $("#loadMarketHistory").addEventListener("click", loadMarketHistory);
+    ["#instrument", "#marketStart", "#marketEnd", "#marketSchema", "#apiOrigin"].forEach(selector => {
+      $(selector).addEventListener("change", () => { lastMarketEstimate = null; setStatus("#marketEstimate", "Settings changed; estimate again before loading."); });
+    });
+    checkBackend();
+  }
+
+  function apiBase() {
+    let url;
+    try { url = new URL($("#apiOrigin").value.trim()); }
+    catch { throw new Error("Enter a complete API address, such as http://localhost:8000."); }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new Error("Use an http or https API address without credentials, query parameters, or a fragment.");
+    }
+    return url.origin + url.pathname.replace(/\/$/, "");
+  }
+
+  async function backendFetch(path) {
+    const response = await fetchTimed(`${apiBase()}${path}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof payload.detail === "string" ? payload.detail : payload.detail?.message || JSON.stringify(payload.detail || `HTTP ${response.status}`);
+      throw new Error(detail);
+    }
+    return payload;
+  }
+
+  async function checkBackend() {
+    setStatus("#backendStatus", "Checking CATALYST API…", "working");
+    try {
+      const result = await backendFetch("/api/v1/system/health");
+      const ready = result.databento_configured;
+      setStatus("#backendStatus", ready ? `Ready · ${result.provider} · v${result.version}` : "API responds, but no Databento server key is configured.", ready ? "ok" : "error");
+      $("#headerSourceState").innerHTML = `<i></i> ${ready ? "Market API ready" : "Market API needs setup"}`;
+    } catch (error) {
+      setStatus("#backendStatus", `${error.message} Start the local API and configure its server key.`, "error");
+      $("#headerSourceState").innerHTML = "<i></i> Market API unavailable";
+    }
+  }
+
+  function marketRequestBounds() {
+    const start = $("#marketStart").value;
+    const end = $("#marketEnd").value;
+    if (!start || !end || start >= end) throw new Error("Choose a start date earlier than the end date.");
+    const exclusiveEnd = new Date(`${end}T00:00:00Z`);
+    exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+    const params = new URLSearchParams({ start: `${start}T00:00:00Z`, end: exclusiveEnd.toISOString(), schema: $("#marketSchema").value });
+    return { params, start, end, schema: $("#marketSchema").value, instrument: $("#instrument").value };
+  }
+
+  async function estimateMarketHistory() {
+    setStatus("#marketEstimate", "Requesting provider cost estimate…", "working");
+    try {
+      const request = marketRequestBounds();
+      const estimate = await backendFetch(`/api/v1/markets/${encodeURIComponent(request.instrument)}/history/estimate?${request.params}`);
+      lastMarketEstimate = { ...request, cost: estimate.estimated_cost_usd };
+      setStatus("#marketEstimate", `Estimated provider charge: $${estimate.estimated_cost_usd.toFixed(4)} · ${estimate.count ?? "historical"} bars · ${estimate.provider_symbol} · ${estimate.dataset}. Check account credits and fees in your provider portal.`, "ok");
+      $("#marketCostConfirm").checked = false;
+    } catch (error) {
+      lastMarketEstimate = null;
+      setStatus("#marketEstimate", error.message, "error");
+    }
+  }
+
+  async function loadMarketHistory() {
+    if (!lastMarketEstimate) { setStatus("#marketHistoryStatus", "Estimate the request first.", "error"); return; }
+    if (lastMarketEstimate.instrument !== $("#instrument").value || lastMarketEstimate.schema !== $("#marketSchema").value || lastMarketEstimate.start !== $("#marketStart").value || lastMarketEstimate.end !== $("#marketEnd").value) {
+      lastMarketEstimate = null; setStatus("#marketHistoryStatus", "The request settings changed. Estimate again first.", "error"); return;
+    }
+    if (lastMarketEstimate.cost > 0 && !$("#marketCostConfirm").checked) {
+      setStatus("#marketHistoryStatus", "This request has a non-zero estimated cost. Review the estimate and check the confirmation box before loading.", "error"); return;
+    }
+    setStatus("#marketHistoryStatus", "Fetching historical bars from Databento…", "working");
+    try {
+      const params = new URLSearchParams({ ...Object.fromEntries(lastMarketEstimate.params), confirm_cost: String($("#marketCostConfirm").checked) });
+      const response = await backendFetch(`/api/v1/markets/${encodeURIComponent(lastMarketEstimate.instrument)}/history?${params}`);
+      const rows = response.bars.map(bar => ({ date: new Date(bar.timestamp), close: Number(bar.close) })).filter(row => Number.isFinite(row.close) && row.date.toString() !== "Invalid Date");
+      if (!rows.length) throw new Error("The provider returned no valid bars.");
+      const descriptor = `${response.provider} ${response.provider_symbol} ${response.schema} ${response.start.slice(0, 10)} to ${response.end.slice(0, 10)}`;
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(response.bars)));
+      const fingerprint = [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+      imported = { rows, filename: descriptor, instrument: response.instrument, fingerprint, provider: response.provider, sourceSchema: response.schema };
+      updateImportedView(descriptor);
+      setStatus("#marketHistoryStatus", `${rows.length.toLocaleString()} dated bars loaded · fetched ${response.fetched_at} · ${response.freshness} ${response.price_adjustment}`, "ok");
+      $("#sourceOverall").textContent = "DATABENTO HISTORY LOADED";
+      $("#headerSourceState").innerHTML = "<i></i> Historical bars loaded";
+      lastMarketEstimate = null;
+    } catch (error) {
+      setStatus("#marketHistoryStatus", error.message, "error");
+    }
   }
 
   async function fetchTreasury() {
@@ -530,6 +640,8 @@
 
   function renderStudyError(message) {
     $("#modelStatus").textContent = "INSUFFICIENT HISTORY";
+    $("#forecastUnavailableTitle").textContent = "Insufficient history for evaluation";
+    $("#forecastUnavailableReason").textContent = message;
     $(".forecast-box").innerHTML = '<div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">INSUFFICIENT HISTORY</span><p>The selected file does not provide enough separated training, calibration, and holdout observations.</p>';
     $("#studyResults").innerHTML = `<section class="panel empty-view"><div class="empty-glyph">!</div><h2>Study could not run</h2><p>${escapeHtml(message)}</p></section>`;
   }
@@ -541,6 +653,12 @@
     const classes = ["Bearish", "Neutral", "Bullish"];
     const percent = value => `${(100 * value).toFixed(1)}%`;
     const forecasts = classes.map((name, i) => `<div class="forecast-class"><span>${name}</span><strong>${percent(report.forecast[i])}</strong></div>`).join("");
+    $("#forecastUnavailableTitle").textContent = report.passes ? "Experimental price-only study passed its holdout gate" : "Insufficient evidence for a directional forecast";
+    $("#forecastUnavailableReason").textContent = report.passes
+      ? "This result uses only the selected historical price series. It is not a macro/news forecast or proof of tradable performance. Review holdout metrics and fold dates in Model Lab."
+      : report.tests < 100
+        ? `The study has ${report.tests} unseen outcomes; at least 100 are required. No directional probability is shown.`
+        : "The calibrated price-only baseline did not beat its training class-prior Brier benchmark. No directional probability is shown.";
     const rows = report.foldsDetail.map(fold => `<tr><td>${fold.fold}</td><td>${fold.train.toLocaleString()}<small>${fold.trainDates[0]}–${fold.trainDates[1]}</small></td><td>${fold.calibration.toLocaleString()}<small>${fold.calibrationDates[0]}–${fold.calibrationDates[1]}</small></td><td>${fold.test.toLocaleString()}<small>${fold.testDates[0]}–${fold.testDates[1]}</small></td><td>${fold.temperature.toFixed(2)}</td><td>${fold.metrics.brier.toFixed(3)}</td></tr>`).join("");
     $("#studyResults").innerHTML = `<section class="panel study-outcome"><div class="panel-heading"><div><div class="eyebrow">NEXT ${report.horizon} BAR${report.horizon === 1 ? "" : "S"} · ${escapeHtml(report.instrument)}</div><h2>${report.passes ? "Experimental price-only probabilities" : "Forecast withheld by evaluation gate"}</h2></div><span class="status-tag ${report.passes ? "positive" : "neutral"}">${badge}</span></div><div class="study-warning">One user-supplied price series · no macro or news inputs · not a live or institutional forecast.</div>${report.passes ? `<div class="forecast-classes">${forecasts}</div>` : `<div class="abstain-reason">${report.tests < 100 ? `Holdout has ${report.tests} outcomes; minimum gate is 100.` : "Calibrated model did not beat the training base-rate benchmark on multiclass Brier score."} Directional probabilities are suppressed.</div>`}<div class="metric-grid"><div><span>Walk-forward outcomes</span><strong>${report.tests.toLocaleString()}</strong></div><div><span>Multiclass Brier</span><strong>${metric.brier.toFixed(4)}</strong></div><div><span>Base-rate Brier</span><strong>${metric.baselineBrier.toFixed(4)}</strong></div><div><span>Brier skill vs base rate</span><strong>${percent(report.brierSkill)}</strong></div><div><span>Balanced accuracy</span><strong>${percent(metric.balancedAccuracy)}</strong></div><div><span>Log loss</span><strong>${metric.logLoss.toFixed(4)}</strong></div></div><div class="class-counts">Test outcomes: Bearish ${metric.counts[0]} · Neutral ${metric.counts[1]} · Bullish ${metric.counts[2]} · Coverage 100% (no abstentions in test)</div></section><section class="panel fold-panel"><div class="panel-heading"><div><div class="eyebrow">CHRONOLOGICAL FOLDS</div><h2>Expanding-window evaluation</h2></div><button class="text-button" id="downloadStudy">Download report JSON ↓</button></div><div class="table-scroll"><table><thead><tr><th>Fold</th><th>Train</th><th>Calibrate</th><th>Test</th><th>Temp.</th><th>Brier</th></tr></thead><tbody>${rows}</tbody></table></div><div class="study-provenance">Dataset SHA-256 ${escapeHtml(report.fingerprint)} · ${escapeHtml(report.filename)} · ${report.first} to ${report.last} · horizon in bars · neutral band ${report.effectiveBand} price units · model softmax-price-v1 / L2=0.01 / 180 epochs</div></section>`;
     $("#downloadStudy").addEventListener("click", () => downloadJson(report));
@@ -608,8 +726,8 @@
     const returnText = `${change >= 0 ? "+" : ""}${(change * 100).toFixed(2)}%`;
     const item = instruments[$("#instrument").value];
     $("#lastPrice").textContent = last.close.toLocaleString(undefined, { maximumFractionDigits: 4 });
-    $("#priceCaption").textContent = `${rows.length.toLocaleString()} imported observations · ${last.date.toISOString().slice(0, 10)} · local file`;
-    $("#chartUnit").textContent = `${item.unit} · imported history`;
+    $("#priceCaption").textContent = `${rows.length.toLocaleString()} imported observations · ${last.date.toISOString().slice(0, 10)} · ${imported.provider ? `source: ${imported.provider}` : "local file"}`;
+    $("#chartUnit").textContent = `${item.unit} · ${imported.provider || "user-supplied history"}`;
     $("#chartEmpty").hidden = true;
     $("#seriesSummary").textContent = `${filename} · ${first.date.toISOString().slice(0, 10)} → ${last.date.toISOString().slice(0, 10)}`;
     $("#returnSummary").textContent = `Observed change ${returnText}`;
@@ -622,6 +740,8 @@
   function clearCurrentStudy(message) {
     window.catalystLastStudy = null;
     $("#modelStatus").textContent = "NO STUDY";
+    $("#forecastUnavailableTitle").textContent = "Price history loaded; forecast still unavailable";
+    $("#forecastUnavailableReason").textContent = `${message} A directional forecast appears only if the chronological holdout contains at least 100 outcomes and beats its baseline.`;
     $("#studyResults").innerHTML = `<section class="panel empty-view"><div class="empty-glyph">⌁</div><h2>Run a new study for this file</h2><p>${escapeHtml(message)}</p></section>`;
     $(".forecast-box").innerHTML = '<div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">MODEL NOT VALIDATED</span><p>Outcome probabilities will appear only after instrument-specific training, chronological evaluation, and calibration.</p>';
   }

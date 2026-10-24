@@ -1,28 +1,44 @@
 # Architecture
 
-## Current release
+## Current components
 
-The app is a dependency-free static site. `index.html` provides the application views, `styles.css` contains the responsive design system, `app.js` owns source requests, local state, CSV-derived calculations, and research computations, and `data/factors.json` defines 150 macro factor candidates. The GitHub Pages workflow publishes these files.
+```text
+Browser (GitHub Pages or localhost)
+  ├─ GDELT DOC 2.0 (public document search)
+  ├─ Treasury XML (daily nominal and real yields)
+  ├─ FRED API (key entered in page memory; direct request)
+  └─ CATALYST FastAPI (localhost or separately deployed)
+       └─ Databento historical API (key held in server environment)
+```
 
-### Source connectors
+The browser owns the interface, source observation session, CSV parsing, chart, SHA-256 input digest, and price-only walk-forward baseline. It sends no CSV or Databento key to the CATALYST server. The server owns the Databento credential, performs provider cost estimates, validates instruments/date ranges/schemas, makes authorized historical requests, normalizes timestamps to UTC, and returns OHLCV bars with source and freshness metadata.
 
-- GDELT DOC 2.0: on-demand public document search, bounded to a selected lookback; title, URL, domain, GDELT seen time, country, and language are preserved. GDELT coverage metadata is not a measure of truth, market relevance, or impact.
-- U.S. Treasury XML: daily nominal and real par-yield feeds. Current observations, 2s10s spread, and daily changes are derived from dated observations. Feed publication timing is not suitable for point-in-time model reconstruction.
-- FRED API: user-entered key remains in the page memory and is sent by the browser directly to the St. Louis Fed API. Selected series and source-published release dates are fetched on demand. The user must accept the linked FRED terms. Current FRED values do not reconstruct ALFRED historical vintages.
-- User CSV: parsing, charting, descriptive statistics, and research calculations run in the browser; file contents are not uploaded or saved. A SHA-256 digest identifies the study input.
+## API routes
 
-All provider errors remain visible. Fetch timestamps are recorded separately from source observation dates. Source series displayed for macro context do not automatically enter the classifier.
+- `GET /api/v1/system/health`: API version and whether the Databento key is configured. This checks presence only, not whether the key is valid.
+- `GET /api/v1/instruments`: exact futures mapping and unsupported spot-gold state.
+- `GET /api/v1/markets/{symbol}/history/estimate`: Databento estimated request cost and request metadata.
+- `GET /api/v1/markets/{symbol}/history`: OHLCV bars, only after non-zero estimated cost is explicitly confirmed.
 
-## Price-only research baseline
+The provider adapter uses `GLBX.MDP3` continuous volume-front-month symbology (`{root}.v.0`) for CME futures OHLCV. This returns unadjusted continuous-contract data; rollover gaps can remain. NQ/MNQ and GC/MGC use distinct roots. XAUUSD is not mapped to a futures series.
 
-The model creates three labels from a user-entered price-move band and round-trip cost floor. Features are five past-only transformations of log returns and price: 1-, 2-, and 5-bar returns, 20-bar realized volatility, and 20-bar cumulative return. The three-class softmax is L2-regularized, with scaling fit on each training slice. Expanding folds separate training, temperature calibration, and test slices; horizon overlap is embargoed at split boundaries. Fold test predictions are compared with training class-prior probabilities using multiclass Brier score, log loss, and balanced accuracy. The current estimate is suppressed unless total holdout coverage reaches 100 observations and aggregated Brier beats the training base-rate Brier. Results are still experimental and depend on the user's price series and labeling choices.
+## Sources and time
 
-The current model has no macro, news, cross-asset, or licensed futures inputs. It is not a macro forecast and cannot establish trading profitability.
+- Databento history is fetched on demand and labeled historical, never real-time. It needs a server-side API key and may consume provider credits or incur cost. The user sees an estimate before the data request.
+- Treasury and FRED values preserve observation dates separately from fetch time. The current FRED endpoint returns current observations, not point-in-time ALFRED history, and neither source is joined into the current model.
+- GDELT results are public document metadata. Coverage does not establish event truth, novelty, corroboration, relevance, or market impact.
+- The interface displays UTC and America/New_York using the IANA timezone database.
 
-## Data integrity boundary
+## Research model boundary
 
-A future production data store should retain source, instrument/series, observation period, publication time, ingestion time, available-at time, revision/vintage, value, unit, and validation state. Forecast features must satisfy `available_at <= forecast_created_at`. Revisions must not overwrite first-release values. Missing inputs remain missing, never zero.
+The browser's model is a transparent experimental baseline on one close series. It uses past-only return/volatility/trend features and future-bar labels. Scaling and temperature calibration are fitted on earlier slices; horizon overlap is embargoed; test predictions are compared with training class priors. It is not the macro model specified in the master prompt. The forecast is withheld unless the holdout contains at least 100 outcomes and calibrated multiclass Brier score beats the training base-rate Brier score.
 
-## Planned modular monolith
+## Credentials and network access
 
-A server-backed follow-up may add an API, scheduled ingestion, point-in-time database, instrument-specific macro feature pipelines, licensed futures data, and walk-forward research service. Keep credentials server-side, isolate news extraction from market impact estimation, and leave trade execution out of scope.
+`.env` is ignored by Git. `DATABENTO_API_KEY` is read only by the server. The public GitHub Pages frontend can call a locally running API at `http://localhost:8000`; CORS allowlists the project page and local development origins. No API key belongs in the static frontend. FRED keys are user-entered in the page, remain in tab memory, and are sent directly to FRED.
+
+The static GitHub Pages deployment does not run FastAPI. For public multi-user market history, deploy the API separately over HTTPS and configure `CATALYST_ALLOWED_ORIGINS`; never deploy a user secret in a static bundle. There is no persistence or background worker in this release.
+
+## Remaining production work
+
+No live Databento stream, persistent point-in-time store, scheduler, first-release vintage reconstruction, licensed economic consensus, event extraction/corroboration, historical analog engine, cross-asset macro forecasting, exchange calendar, or XAUUSD spot connector exists. These are required before describing CATALYST as the complete institutional macro platform in the master prompt.
