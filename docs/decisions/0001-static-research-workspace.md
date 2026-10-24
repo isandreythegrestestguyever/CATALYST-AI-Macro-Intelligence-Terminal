@@ -5,12 +5,12 @@
 
 ## Context
 
-The repository is empty and no market-data, consensus, news, or model credentials have been supplied. Publishing fabricated observations or probabilities would violate the product's evidence requirements. A backend and database without a connected, usable source would add setup burden without producing valid analysis.
+The repository began empty and no price feed, consensus license, or server hosting was available. A fabricated live signal would violate the brief. A public site should remain usable without embedded credentials.
 
 ## Decision
 
-Deliver a dependency-free static terminal with honest unavailable states, a complete descriptive factor registry, and a local historical CSV importer. Keep forecast outputs explicitly unvalidated. Use GitHub Actions for static Pages deployment.
+Publish a static browser workspace with on-demand public GDELT and Treasury requests, a bring-your-own-key FRED connector, local CSV research, and explicit abstention rules. Do not claim that descriptive Treasury/FRED data is point-in-time or that a price-only baseline is macro forecasting.
 
 ## Consequences
 
-The interface can be hosted without secrets and can support actual user-supplied historical series. It is not yet a live macro intelligence or predictive service. Provider connectors, point-in-time storage, forecasting, and validation must be implemented before those claims are enabled.
+The site can fetch public source records and run descriptive and empirical calculations on actual user data without uploading it. It cannot provide licensed intraday futures data, a shared server-side observation store, point-in-time economic vintages, consensus surprises, persistent study history, or a validated macro model. Those require additional data access and backend infrastructure.
