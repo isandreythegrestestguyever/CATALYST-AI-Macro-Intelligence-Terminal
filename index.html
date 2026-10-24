@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101311">
+  <meta name="description" content="CATALYST is an evidence-first macro research workspace for Nasdaq futures and gold. No fabricated forecasts or live market data.">
+  <title>CATALYST — Macro Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="CATALYST home"><span class="brand-mark">C</span><span>CATALYST</span></a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <button class="nav-link active" data-view="overview">Overview</button>
+      <button class="nav-link" data-view="events">Events</button>
+      <button class="nav-link" data-view="research">Research</button>
+      <button class="nav-link" data-view="scenario">Scenario lab</button>
+      <button class="nav-link" data-view="model">Model lab</button>
+      <button class="nav-link" data-view="history">History</button>
+    </nav>
+    <div class="top-actions">
+      <span class="data-state"><i></i> No live source</span>
+      <button class="icon-button" id="aboutButton" aria-label="About data status" title="About data status">i</button>
+      <button class="mobile-menu" id="menuButton" aria-label="Open navigation">☰</button>
+    </div>
+  </header>
+
+  <main id="main" class="shell">
+    <section class="toolbar" aria-label="Workspace controls">
+      <div class="instrument-control">
+        <label for="instrument">Instrument</label>
+        <select id="instrument">
+          <option value="NQ">NQ · Nasdaq-100 futures</option>
+          <option value="MNQ">MNQ · Micro Nasdaq-100 futures</option>
+          <option value="GC">GC · Gold futures</option>
+          <option value="MGC">MGC · Micro gold futures</option>
+          <option value="XAUUSD">XAUUSD · Spot gold</option>
+        </select>
+      </div>
+      <div class="toolbar-right">
+        <div class="toolbar-meta"><span>Market session</span><strong>Not connected</strong></div>
+        <div class="toolbar-meta"><span>Clock</span><strong id="clock">--:--:-- UTC</strong></div>
+        <label class="horizon-control"><span>Horizon</span><select id="horizon" disabled aria-label="Forecast horizon unavailable"><option>Unavailable</option></select></label>
+      </div>
+    </section>
+
+    <section class="view active" id="view-overview" aria-labelledby="page-title">
+      <div class="page-heading">
+        <div><div class="eyebrow">MACRO RESEARCH WORKSPACE <span class="eyebrow-line"></span> <span id="today">UTC</span></div><h1 id="page-title">Market overview</h1><p class="page-intro">A point-in-time view of evidence, with uncertainty left visible.</p></div>
+        <button class="quiet-button" id="importButton"><span class="upload-icon">↑</span> Import history</button>
+        <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
+      </div>
+
+      <div class="notice"><span class="notice-icon">!</span><div><strong>Forecast unavailable</strong><span>No validated point-in-time dataset or calibrated model is connected. CATALYST is abstaining; no directional probability is displayed.</span></div><button class="notice-link" data-view="model">Model status ↗</button></div>
+
+      <div class="overview-grid">
+        <section class="panel intelligence-panel">
+          <div class="panel-heading"><div><div class="eyebrow">INSTRUMENT READ</div><h2 id="instrumentName">Nasdaq-100 futures</h2></div><span class="status-tag neutral">INSUFFICIENT EVIDENCE</span></div>
+          <div class="readout"><div><span class="readout-label">Last observed price</span><strong class="readout-value" id="lastPrice">—</strong><span class="readout-caption" id="priceCaption">No market series supplied</span></div><div class="readout-divider"></div><div><span class="readout-label">Macro regime</span><strong class="regime-value">Unclassified</strong><span class="readout-caption">Requires timestamped cross-asset inputs</span></div></div>
+          <div class="forecast-box"><div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">MODEL NOT VALIDATED</span><p>Outcome probabilities will appear only after instrument-specific training, chronological evaluation, and calibration.</p></div>
+          <div class="panel-foot"><span>Forecast horizon</span><span>Disabled · no supported model</span></div>
+        </section>
+
+        <section class="panel drivers-panel">
+          <div class="panel-heading"><div><div class="eyebrow">EVIDENCE AVAILABILITY</div><h2>Market drivers</h2></div><button class="text-button" data-view="research">Factor registry ↗</button></div>
+          <div class="driver-empty"><div class="empty-glyph">∅</div><strong>No observed factors</strong><p>Connect a timestamped source or import historical data to begin research. Missing inputs never become zero.</p></div>
+          <div class="driver-foot"><span>150 candidate factors</span><span class="pending-dot">All pending source configuration</span></div>
+        </section>
+      </div>
+
+      <div class="secondary-grid">
+        <section class="panel chart-panel">
+          <div class="panel-heading chart-heading"><div><div class="eyebrow">OBSERVED SERIES</div><h2>Price history</h2></div><span class="chart-unit" id="chartUnit">No series · import CSV</span></div>
+          <div class="chart-wrap" id="chartWrap"><canvas id="priceChart" aria-label="Imported historical close price chart"></canvas><div class="chart-empty" id="chartEmpty"><div class="chart-grid-lines"><i></i><i></i><i></i><i></i></div><div class="chart-empty-copy"><span class="chart-empty-icon">⌁</span><span>Import a historical CSV to inspect actual observations</span></div><span class="axis-label top">—</span><span class="axis-label bottom">—</span></div></div>
+          <div class="chart-summary"><span id="seriesSummary">No historical data loaded</span><span id="returnSummary">Return —</span><span id="volSummary">Realized volatility —</span></div>
+        </section>
+        <section class="panel brief-panel">
+          <div class="panel-heading"><div><div class="eyebrow">RESEARCH BRIEF</div><h2>What the evidence says</h2></div><span class="brief-mark">C</span></div>
+          <blockquote>There is not enough verified evidence to form a market view. Connect point-in-time macro and market data before interpreting direction.</blockquote>
+          <div class="brief-source"><span>Inputs</span><strong>0 sources connected</strong></div>
+          <div class="brief-source"><span>Analysis status</span><strong>Waiting for verified data</strong></div>
+          <button class="full-width-button" data-view="research">Explore research workspace <span>→</span></button>
+        </section>
+      </div>
+
+      <div class="lower-grid">
+        <section class="panel events-preview">
+          <div class="panel-heading"><div><div class="eyebrow">UPCOMING RELEASES</div><h2>Economic calendar</h2></div><button class="text-button" data-view="events">View calendar ↗</button></div>
+          <div class="empty-row"><span class="empty-row-icon">◷</span><span>No verified calendar source connected</span><span class="pending-label">Unavailable</span></div>
+          <p class="panel-note">Consensus and release values require a licensed, timestamped source. No placeholder events are shown.</p>
+        </section>
+        <section class="panel news-preview">
+          <div class="panel-heading"><div><div class="eyebrow">NEWS & POLICY</div><h2>Event intelligence</h2></div><button class="text-button" data-view="events">Event feed ↗</button></div>
+          <div class="empty-row"><span class="empty-row-icon">⌕</span><span>No source-verified events available</span><span class="pending-label">Unavailable</span></div>
+          <p class="panel-note">News sentiment alone is not a market-impact estimate. Every event requires corroboration and observed cross-asset context.</p>
+        </section>
+      </div>
+      <footer class="page-footer"><span>CATALYST <span class="footer-sep">/</span> Research workspace</span><span>Evidence first · no live execution</span><a href="https://github.com/isandreythegrestestguyever/CATALYST-AI-Macro-Intelligence-Terminal" target="_blank" rel="noreferrer">Source ↗</a></footer>
+    </section>
+
+    <section class="view subview" id="view-events"><div class="page-heading"><div><div class="eyebrow">SOURCE-VERIFIED EVENTS</div><h1>Events & news</h1><p class="page-intro">Reported facts, publication times, and market response belong in the same evidence trail.</p></div></div><div class="notice"><span class="notice-icon">!</span><div><strong>No event source connected</strong><span>Economic consensus, releases, and news require source timestamps and licensing. This view will not show invented events.</span></div></div><div class="panel empty-view"><div class="empty-glyph">◷</div><h2>Calendar unavailable</h2><p>No official release schedule or licensed consensus feed is configured. Add a provider before showing forecast, actual, or surprise values.</p><div class="source-list"><span>Expected source metadata</span><strong>Original URL · publication time · available-at time · revision vintage</strong></div></div></section>
+
+    <section class="view subview" id="view-research"><div class="page-heading"><div><div class="eyebrow">QUANTITATIVE FRAMEWORK</div><h1>Factor registry</h1><p class="page-intro">Candidate definitions are documented; no factor contributes without its required data.</p></div><span class="registry-total">150 <small>candidates</small></span></div><div class="registry-tools"><label class="search-box"><span>⌕</span><input type="search" id="factorSearch" placeholder="Search factors or categories" aria-label="Search factor registry"></label><select id="factorCategory" aria-label="Filter factor category"><option value="all">All categories</option></select><span class="pending-label">0 active · 150 pending</span></div><div id="factorList" class="factor-list"></div></section>
+
+    <section class="view subview" id="view-scenario"><div class="page-heading"><div><div class="eyebrow">EXPLICIT HYPOTHETICAL INPUTS</div><h1>Scenario lab</h1><p class="page-intro">Change assumptions and inspect what a future model would need to evaluate.</p></div><span class="status-tag neutral">SENSITIVITY UNAVAILABLE</span></div><div class="scenario-grid"><section class="panel scenario-controls"><div class="eyebrow">SCENARIO ASSUMPTIONS</div><h2>Define a hypothetical macro shock</h2><p>These values are user-entered assumptions, not observations or a forecast.</p><label for="scenarioType">Scenario type</label><select id="scenarioType"><option value="inflation">Inflation surprise</option><option value="policy">Unexpected policy repricing</option><option value="rates">Real-yield move</option><option value="dollar">US dollar move</option></select><label for="scenarioSize">Assumed change</label><div class="scenario-input"><input id="scenarioSize" type="number" step="0.1" value="0.3"><span id="scenarioUnit">percentage points</span></div><label for="scenarioHorizon">Hypothetical event window</label><select id="scenarioHorizon"><option>Release day</option><option>1 trading day</option><option>1 trading week</option></select><button class="quiet-button scenario-button" id="saveScenario">Save assumption</button></section><section class="panel scenario-result"><div class="eyebrow">CONDITIONAL MODEL OUTPUT</div><div class="empty-glyph">—</div><h2>Cannot estimate this scenario</h2><p>No calibrated instrument-specific model or historical event dataset is available. A market response, probability, or expected move would be unsupported.</p><div class="scenario-saved" id="scenarioSaved" aria-live="polite">No scenario assumption saved.</div><div class="source-list"><span>Interpretation</span><strong>Scenario sensitivity is not causal identification</strong></div></section></div><section class="panel methodology"><div class="eyebrow">REQUIRED FOR A USEFUL COMPARISON</div><h2>Inputs that would need to accompany the shock</h2><p>Release vintage and pre-event consensus · contemporaneous rates, FX, and instrument prices · comparable historical events · sample size and uncertainty · model version and validation coverage. Until available, the scenario remains an assumption register only.</p></section></section>
+
+    <section class="view subview" id="view-model"><div class="page-heading"><div><div class="eyebrow">VALIDATION BEFORE FORECAST</div><h1>Model lab</h1><p class="page-intro">Predictions stay suppressed until leakage-safe evaluation and calibration support them.</p></div><span class="status-tag neutral">NOT VALIDATED</span></div><div class="model-grid"><section class="panel empty-view"><div class="eyebrow">FORECAST ENGINE</div><div class="empty-glyph">—</div><h2>No trained model</h2><p>No point-in-time training dataset is configured. Probabilities, expected returns, and directional claims are suppressed.</p></section><section class="panel validation-panel"><div class="eyebrow">REQUIRED EVALUATION</div><h2>Validation gates</h2><div class="check-row"><span>Chronological walk-forward evaluation</span><b>Pending</b></div><div class="check-row"><span>Point-in-time feature reconstruction</span><b>Pending</b></div><div class="check-row"><span>Instrument-specific benchmark</span><b>Pending</b></div><div class="check-row"><span>Calibration and abstention review</span><b>Pending</b></div><div class="check-row"><span>Out-of-sample performance report</span><b>Pending</b></div></section></div><section class="panel methodology"><div class="eyebrow">RESEARCH STANDARD</div><h2>A model earns the right to speak</h2><p>Use base-rate and regularized benchmarks first. Compare on unseen chronological data with proper scoring rules. Preserve forecast snapshots, data vintages, and model versions. A high accuracy number without coverage, calibration, and a leakage audit is not evidence of a useful forecast.</p></section></section>
+
+    <section class="view subview" id="view-history"><div class="page-heading"><div><div class="eyebrow">REPRODUCIBLE EXPERIMENTS</div><h1>Research history</h1><p class="page-intro">Experiment records should make each result reconstructable.</p></div><button class="quiet-button" data-view="research">Browse factors</button></div><div class="panel empty-view"><div class="empty-glyph">⌁</div><h2>No validated experiments</h2><p>Historical price imports provide descriptive statistics only. There are no backtests or out-of-sample metrics in this workspace.</p><div class="source-list"><span>Experiment record</span><strong>Dataset vintage · date splits · model version · features · random seed · metrics</strong></div></div></section>
+
+    <section class="view subview" id="view-about"><div class="page-heading"><div><div class="eyebrow">TRANSPARENCY</div><h1>Data & limitations</h1><p class="page-intro">CATALYST prefers an explicit unknown to a confident guess.</p></div></div><div class="panel methodology"><h2>Current source status</h2><p>No live market, economic, news, consensus, or positioning provider is connected. No values on this site represent current market conditions. The CSV importer reads locally selected history for descriptive inspection only.</p><h2>What becomes enabled next</h2><p>Source adapters with provider timestamps and licensing, a point-in-time observation store, instrument-specific factor computation, and a chronological training and evaluation pipeline. Forecast outputs remain disabled until the evidence is sufficient.</p></div></section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
