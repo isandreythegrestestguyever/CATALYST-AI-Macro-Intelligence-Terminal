@@ -123,7 +123,7 @@
     ["#instrument", "#marketStart", "#marketEnd", "#marketSchema", "#apiOrigin"].forEach(selector => {
       $(selector).addEventListener("change", () => { lastMarketEstimate = null; setStatus("#marketEstimate", "Settings changed; estimate again before loading."); });
     });
-    checkBackend();
+    setStatus("#backendStatus", "Not checked. Select Check API when your local service is running.");
   }
 
   function apiBase() {
