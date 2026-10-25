@@ -100,6 +100,9 @@
     $("#fredFetch").addEventListener("click", fetchFred);
     $("#calendarRefresh").addEventListener("click", fetchReleaseCalendar);
     initializeMarketProvider();
+    $("#homeNewsRefresh").addEventListener("click", refreshPublicEvidence);
+    // Load the keyless public evidence as soon as the workspace opens.
+    refreshPublicEvidence();
     $("#clearObservations").addEventListener("click", () => {
       macroObservations.length = 0; activeFactorValues.clear(); $("#fredKey").value = ""; renderObservations();
       $("#driverData").className = "driver-empty";
@@ -109,7 +112,31 @@
       setStatus("#treasuryStatus", "Not fetched"); setStatus("#fredStatus", "Key not entered");
     });
     $("#newsRefresh").addEventListener("click", () => fetchNews($("#newsQuery").value, $("#newsWindow").value));
-    $("#homeNewsRefresh").addEventListener("click", () => fetchNews(instrumentNewsQuery(), "7d", true));
+  }
+
+  async function refreshPublicEvidence() {
+    const summary = $("#publicSourceSummary");
+    if (summary) summary.textContent = "Refreshing Treasury and GDELT…";
+    $("#headerSourceState").innerHTML = "<i></i> Refreshing public evidence";
+    await Promise.allSettled([
+      fetchTreasury(),
+      fetchNews(instrumentNewsQuery(), "7d", true)
+    ]);
+    const treasuryReady = $("#treasuryStatus").classList.contains("ok");
+    const newsReady = $("#newsStatus").classList.contains("ok");
+    const providers = [];
+    if (treasuryReady) providers.push("Treasury");
+    if (newsReady) providers.push("GDELT");
+    const fetchedAt = new Date().toISOString().slice(11, 16);
+    if (summary) {
+      summary.textContent = providers.length
+        ? `${providers.join(" + ")} · updated ${fetchedAt} UTC`
+        : "Public feeds unavailable · retry or check source status";
+    }
+    $("#sourceOverall").textContent = providers.length
+      ? `${providers.length} PUBLIC SOURCE${providers.length === 1 ? "" : "S"} CONNECTED`
+      : "PUBLIC FEEDS UNAVAILABLE";
+    $("#headerSourceState").innerHTML = `<i></i> ${providers.length ? `${providers.join(" + ")} updated` : "Public sources unavailable"}`;
   }
 
   function initializeMarketProvider() {
@@ -358,7 +385,7 @@
       setStatus(statusSelector, `${results.length} documents · fetched ${new Date().toISOString().slice(11, 16)} UTC`, "ok");
     } catch (error) {
       const message = `${error.message} This may be a source outage or browser network restriction.`;
-      if (homeOnly) $("#homeNewsList").innerHTML = `<div class="empty-row"><span class="empty-row-icon">!</span><span>${escapeHtml(message)}</span></div>`;
+      if (homeOnly) { $("#homeNewsList").innerHTML = `<div class="empty-row"><span class="empty-row-icon">!</span><span>${escapeHtml(message)}</span></div>`; setStatus(statusSelector, "GDELT unavailable", "error"); }
       else { $("#newsList").innerHTML = `<div class="empty-view"><div class="empty-glyph">!</div><h2>GDELT request failed</h2><p>${escapeHtml(message)}</p></div>`; setStatus(statusSelector, "Unavailable", "error"); }
     }
   }
@@ -442,8 +469,13 @@
   }
 
   async function fetchTimed(url) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(15000), cache: "no-store" });
-    return response;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      return await fetch(url, { signal: controller.signal, cache: "no-store" });
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
   function escapeHtml(value) {

@@ -8,6 +8,7 @@ The app does not invent a price, market regime, or probability. Its forecast beg
 
 ## What works
 
+- The overview now automatically requests the current-year U.S. Treasury nominal/real yield curves and GDELT public coverage on page load. **Refresh evidence** reruns both, and the page reports which source succeeded instead of leaving a blank dashboard. Provider outage or browser CORS restrictions remain visible.
 - GDELT public-document search, with source links, publisher, country/language, and GDELT's seen time. Coverage is not treated as fact verification or market impact.
 - U.S. Treasury daily nominal and real yield curves, with dated values, derived curve spreads, and daily changes.
 - FRED observations and release dates using a user-owned key entered in the browser. The page sends it to FRED and keeps it in tab memory; current FRED observations are not reconstructed ALFRED vintages.
