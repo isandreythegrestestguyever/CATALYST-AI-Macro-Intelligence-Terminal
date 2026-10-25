@@ -263,6 +263,7 @@
       macroObservations.unshift(merged);
       renderObservations();
       renderDrivers(merged);
+      updateResearchBrief();
       activateFactor("Two-year / ten-year curve spread", merged.values["2s10s curve spread"], "percentage points", merged);
       activateFactor("Nominal-real yield divergence", merged.values["10Y nominal-real spread"], "percentage points", merged);
       ["US 2-year yield change", "US 5-year yield change", "US 10-year yield change", "US 30-year yield change"].forEach(name => activateFactor({"US 2-year yield change":"US two-year yield changes","US 5-year yield change":"US five-year yield changes","US 10-year yield change":"US ten-year yield changes","US 30-year yield change":"US thirty-year yield changes"}[name], merged.values[name], "percentage points per Treasury observation", merged));
@@ -314,6 +315,7 @@
       macroObservations.unshift(record);
       renderObservations();
       renderDrivers(record);
+      updateResearchBrief();
       if (series === "CPIAUCSL" && observations.length > 1) {
         const change = (observations[0].value / observations[1].value - 1) * 100;
         activateFactor("CPI month-over-month momentum", change, "% per observation", record);
@@ -461,6 +463,31 @@
     });
     const note = document.createElement("p"); note.className = "driver-provenance"; note.textContent = `${record.provider} · observation ${record.observationDate} · research context only`;
     target.append(note);
+  }
+
+  function updateResearchBrief() {
+    const treasury = macroObservations.find(record => record.provider === "U.S. Treasury");
+    const brief = $("#researchBrief");
+    if (!brief) return;
+    if (!treasury) {
+      const latest = macroObservations[0];
+      brief.textContent = latest
+        ? `${latest.provider} ${latest.series} is loaded for observation ${latest.observationDate}. This is macro context only. Verified NQ/GC price history and a model that passes chronological validation are still missing, so CATALYST abstains.`
+        : "Treasury macro context loads automatically. Directional forecasts remain unavailable until verified NQ/GC prices and a model that passes chronological validation are available.";
+      return;
+    }
+    const dailyChange = name => {
+      const value = treasury.values[name];
+      if (!Number.isFinite(value)) return `${name.replace("US ", "")} unavailable`;
+      const basisPoints = Math.round(value * 100);
+      return `${name.replace("US ", "")} ${basisPoints > 0 ? "+" : ""}${basisPoints} bp`;
+    };
+    brief.textContent = `The latest U.S. Treasury observation (${treasury.observationDate}) shows ${[
+      dailyChange("US 2-year yield change"),
+      dailyChange("US 5-year yield change"),
+      dailyChange("US 10-year yield change"),
+      dailyChange("US 30-year yield change")
+    ].join(", ")} versus the prior Treasury observation. This is rates context, not a Nasdaq or gold forecast. Verified instrument prices and a model that passes chronological validation are still missing, so CATALYST abstains.`;
   }
 
   function activateFactor(name, value, unit, record) {
