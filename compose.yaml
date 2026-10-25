@@ -1,8 +1,25 @@
 services:
   api:
     build: .
-    env_file:
-      - .env
+    environment:
+      DATABENTO_API_KEY: ${DATABENTO_API_KEY:-}
+      CATALYST_ALLOWED_ORIGINS: ${CATALYST_ALLOWED_ORIGINS:-https://isandreythegrestestguyever.github.io,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8000,http://127.0.0.1:8000}
     ports:
       - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/system/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  site:
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "4173", "--bind", "0.0.0.0", "--directory", "/site"]
+    volumes:
+      - .:/site:ro
+    ports:
+      - "4173:4173"
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped

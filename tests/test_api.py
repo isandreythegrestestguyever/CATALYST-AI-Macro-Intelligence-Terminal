@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -59,6 +59,28 @@ class ApiContractTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 503)
         self.assertIn("DATABENTO_API_KEY", response.json()["detail"])
+
+    @patch("catalyst_api.main.request_gdelt", new_callable=AsyncMock)
+    def test_public_news_proxy_normalizes_source_metadata(self, fetch_news):
+        fetch_news.return_value = {"articles": [{
+            "title": "Rate decision",
+            "url": "https://news.example/story",
+            "domain": "news.example",
+            "seendate": "20261025T070000Z",
+            "language": "English",
+            "sourcecountry": "United States",
+        }, {"title": "Bad link", "url": "javascript:alert(1)"}]}
+        response = self.client.get("/api/v1/news", params={"query": "  Fed   rates ", "timespan": "7d", "maxrecords": 10})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["articles"][0]["domain"], "news.example")
+        fetch_news.assert_awaited_once_with("Fed rates", "7d", 10)
+
+    def test_public_news_proxy_bounds_and_validates_queries(self):
+        self.assertEqual(self.client.get("/api/v1/news", params={"query": "   "}).status_code, 422)
+        self.assertEqual(self.client.get("/api/v1/news", params={"query": "rates", "timespan": "90d"}).status_code, 422)
+        self.assertEqual(self.client.get("/api/v1/news", params={"query": "rates", "maxrecords": 100}).status_code, 422)
 
     @patch("catalyst_api.main._estimate", return_value=1.25)
     @patch("catalyst_api.main.databento_client")

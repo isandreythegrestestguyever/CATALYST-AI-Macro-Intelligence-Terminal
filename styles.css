@@ -101,3 +101,6 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible,su
   .study-fields{grid-template-columns:1fr 1fr}.metric-grid{grid-template-columns:repeat(2,1fr)}.forecast-classes{grid-template-columns:1fr}
   .calendar-row{grid-template-columns:85px 1fr}.calendar-row span{grid-column:2}
 }
+.history-list{display:grid;gap:14px}.history-record{padding:20px}.history-record h2{font-size:15px;overflow-wrap:anywhere}.history-meta{display:flex;flex-wrap:wrap;gap:8px 20px;margin:12px 0;color:var(--muted);font:10px var(--mono)}.history-record .metric-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.history-record .text-button{margin-top:10px}
+.heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+@media(max-width:760px){.history-record{padding:16px}.history-record .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.history-meta{font-size:9px}}

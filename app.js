@@ -15,6 +15,11 @@
   const macroObservations = [];
   const activeFactorValues = new Map();
   let factorGroups = [];
+  const TREASURY_HISTORY_KEY = "catalyst.treasury-history.v1";
+  const TREASURY_FEATURE_NAMES = ["US 2-year yield change", "US 10-year yield change", "2s10s spread change", "10Y real yield change", "10Y nominal-real spread change"];
+  let treasuryBuckets = readTreasuryBuckets();
+  let treasuryHistory = buildTreasuryHistory(treasuryBuckets);
+  const STUDY_HISTORY_KEY = "catalyst.study-history.v1";
 
   function updateClock() {
     const now = new Date();
@@ -29,6 +34,7 @@
     $$(".nav-link").forEach(button => button.classList.toggle("active", button.dataset.view === name));
     document.body.classList.remove("mobile-nav-open");
     if (name === "overview" && imported) requestAnimationFrame(drawChart);
+    if (name === "history") renderHistory();
     window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
@@ -38,6 +44,10 @@
   });
   $("#menuButton").addEventListener("click", () => document.body.classList.toggle("mobile-nav-open"));
   $("#aboutButton").addEventListener("click", () => navigate("about"));
+  $("#clearStudyHistory").addEventListener("click", () => {
+    localStorage.removeItem(STUDY_HISTORY_KEY);
+    renderHistory();
+  });
   initializeSources();
   $("#scenarioType").addEventListener("change", event => {
     const units = { inflation: "percentage points", policy: "basis points", rates: "basis points", dollar: "%" };
@@ -93,10 +103,11 @@
   function initializeSources() {
     const yearSelect = $("#treasuryYear");
     const currentYear = new Date().getUTCFullYear();
-    for (let year = currentYear; year >= currentYear - 3; year -= 1) {
+    for (let year = currentYear; year >= currentYear - 10; year -= 1) {
       const option = document.createElement("option"); option.value = String(year); option.textContent = String(year); yearSelect.append(option);
     }
     $("#treasuryFetch").addEventListener("click", fetchTreasury);
+    $("#treasuryHistoryFetch").addEventListener("click", fetchTreasuryHistory);
     $("#fredFetch").addEventListener("click", fetchFred);
     $("#calendarRefresh").addEventListener("click", fetchReleaseCalendar);
     initializeMarketProvider();
@@ -105,12 +116,15 @@
     refreshPublicEvidence();
     $("#clearObservations").addEventListener("click", () => {
       macroObservations.length = 0; activeFactorValues.clear(); $("#fredKey").value = ""; renderObservations();
+      treasuryBuckets = {}; treasuryHistory = []; localStorage.removeItem(TREASURY_HISTORY_KEY);
+      $("#treasuryHistoryStatus").textContent = "No stored daily history";
       $("#driverData").className = "driver-empty";
       $("#driverData").innerHTML = '<div class="empty-glyph">∅</div><strong>No macro observations loaded</strong><p>Connect Treasury XML or add your FRED API key in Data sources. Values retain source and observation date.</p>';
       if (factorGroups.length) renderFactors(factorGroups);
       $("#sourceOverall").textContent = "NOT FETCHED";
       setStatus("#treasuryStatus", "Not fetched"); setStatus("#fredStatus", "Key not entered");
     });
+    if (treasuryHistory.length) updateTreasuryHistoryStatus("Cached history is local to this browser.");
     $("#newsRefresh").addEventListener("click", () => fetchNews($("#newsQuery").value, $("#newsWindow").value));
   }
 
@@ -168,7 +182,9 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = typeof payload.detail === "string" ? payload.detail : payload.detail?.message || JSON.stringify(payload.detail || `HTTP ${response.status}`);
-      throw new Error(detail);
+      const error = new Error(detail);
+      error.status = response.status;
+      throw error;
     }
     return payload;
   }
@@ -238,44 +254,130 @@
     }
   }
 
-  async function fetchTreasury() {
-    const year = $("#treasuryYear").value;
-    setStatus("#treasuryStatus", "Fetching official XML…", "working");
+  async function fetchTreasuryYear(year) {
+    const base = "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml";
+    const nominalUrl = new URL(base);
+    nominalUrl.search = new URLSearchParams({ data: "daily_treasury_yield_curve", field_tdr_date_value: String(year) });
+    const realUrl = new URL(base);
+    realUrl.search = new URLSearchParams({ data: "daily_treasury_real_yield_curve", field_tdr_date_value: String(year) });
+    const [nominalResponse, realResponse] = await Promise.all([fetchTimed(nominalUrl), fetchTimed(realUrl)]);
+    if (!nominalResponse.ok || !realResponse.ok) throw new Error(`Treasury returned HTTP ${nominalResponse.status}/${realResponse.status} for ${year}.`);
+    const [nominalXml, realXml] = await Promise.all([nominalResponse.text(), realResponse.text()]);
+    const nominal = parseTreasuryXml(nominalXml);
+    const real = parseTreasuryXml(realXml);
+    if (!nominal.length) throw new Error(`Treasury returned no recognized nominal yields for ${year}.`);
+    return { nominal, real, fetchedAt: new Date().toISOString() };
+  }
+
+  function persistTreasuryBuckets() {
+    try { localStorage.setItem(TREASURY_HISTORY_KEY, JSON.stringify(treasuryBuckets)); return true; }
+    catch { return false; }
+  }
+
+  function readTreasuryBuckets() {
     try {
-      const nominalUrl = new URL("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml");
-      nominalUrl.search = new URLSearchParams({ data: "daily_treasury_yield_curve", field_tdr_date_value: year });
-      const realUrl = new URL("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml");
-      realUrl.search = new URLSearchParams({ data: "daily_treasury_real_yield_curve", field_tdr_date_value: year });
-      const [nominalResponse, realResponse] = await Promise.all([fetchTimed(nominalUrl), fetchTimed(realUrl)]);
-      if (!nominalResponse.ok || !realResponse.ok) throw new Error(`Treasury returned HTTP ${nominalResponse.status}/${realResponse.status}.`);
-      const [nominalXml, realXml] = await Promise.all([nominalResponse.text(), realResponse.text()]);
-      const nominalRows = parseTreasuryXml(nominalXml);
-      const realRows = parseTreasuryXml(realXml);
-      const nominal = nominalRows.at(-1);
-      const real = realRows.at(-1);
-      if (!nominal?.date || !real?.date || nominal.values.BC_10YEAR == null || nominal.values.BC_2YEAR == null) throw new Error("The response contained no recognized Treasury yield observations.");
-      const previousNominal = nominalRows.at(-2);
-      const realSameDate = realRows.find(row => row.date === nominal.date) || real;
-      const previousReal = realRows.filter(row => row.date < realSameDate.date).at(-1);
-      const realTen = realSameDate.values.TC_10YEAR ?? realSameDate.values.BC_10YEAR ?? null;
-      const realTenChange = realTen === null || previousReal === undefined ? null : realTen - (previousReal.values.TC_10YEAR ?? previousReal.values.BC_10YEAR ?? realTen);
-      const merged = { provider: "U.S. Treasury", series: "Daily par yield curves", observationDate: nominal.date, fetchedAt: new Date().toISOString(), values: { "US 2-year yield change": nominal.values.BC_2YEAR - (previousNominal?.values.BC_2YEAR ?? nominal.values.BC_2YEAR), "US 5-year yield change": nominal.values.BC_5YEAR - (previousNominal?.values.BC_5YEAR ?? nominal.values.BC_5YEAR), "US 10-year yield change": nominal.values.BC_10YEAR - (previousNominal?.values.BC_10YEAR ?? nominal.values.BC_10YEAR), "US 30-year yield change": nominal.values.BC_30YEAR - (previousNominal?.values.BC_30YEAR ?? nominal.values.BC_30YEAR), "2s10s curve spread": nominal.values.BC_10YEAR - nominal.values.BC_2YEAR, "10Y nominal yield": nominal.values.BC_10YEAR, "10Y real yield": realTen, "10Y real yield change": realTenChange, "10Y nominal-real spread": realTen === null ? null : nominal.values.BC_10YEAR - realTen } };
-      macroObservations.unshift(merged);
-      renderObservations();
-      renderDrivers(merged);
-      updateResearchBrief();
-      activateFactor("Two-year / ten-year curve spread", merged.values["2s10s curve spread"], "percentage points", merged);
-      activateFactor("Nominal-real yield divergence", merged.values["10Y nominal-real spread"], "percentage points", merged);
-      ["US 2-year yield change", "US 5-year yield change", "US 10-year yield change", "US 30-year yield change"].forEach(name => activateFactor({"US 2-year yield change":"US two-year yield changes","US 5-year yield change":"US five-year yield changes","US 10-year yield change":"US ten-year yield changes","US 30-year yield change":"US thirty-year yield changes"}[name], merged.values[name], "percentage points per Treasury observation", merged));
-      if (merged.values["10Y real yield change"] !== null) activateFactor("Ten-year TIPS real yield changes", merged.values["10Y real yield change"], "percentage points per Treasury observation", merged);
-      if (factorGroups.length) renderFactors(factorGroups);
-      setStatus("#treasuryStatus", `${nominal.date} · ${nominalRows.length} daily observations loaded`, "ok");
+      const parsed = JSON.parse(localStorage.getItem(TREASURY_HISTORY_KEY) || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      return Object.fromEntries(Object.entries(parsed).filter(([, bucket]) => bucket && Array.isArray(bucket.nominal) && Array.isArray(bucket.real)).map(([year, bucket]) => [year, {
+        nominal: bucket.nominal.filter(row => row && /^\d{4}-\d{2}-\d{2}$/.test(row.date || "") && row.values && typeof row.values === "object"),
+        real: bucket.real.filter(row => row && /^\d{4}-\d{2}-\d{2}$/.test(row.date || "") && row.values && typeof row.values === "object"),
+        fetchedAt: typeof bucket.fetchedAt === "string" ? bucket.fetchedAt : ""
+      }]));
+    } catch { return {}; }
+  }
+
+  function buildTreasuryHistory(buckets) {
+    const nominalByDate = new Map(); const realByDate = new Map(); const fetchedAtByDate = new Map();
+    Object.values(buckets).forEach(bucket => {
+      bucket.nominal.forEach(row => { if (row?.date && row.values) { nominalByDate.set(row.date, row.values); fetchedAtByDate.set(row.date, bucket.fetchedAt); } });
+      bucket.real.forEach(row => { if (row?.date && row.values) realByDate.set(row.date, row.values); });
+    });
+    const dates = [...nominalByDate.keys()].sort();
+    let previousNominal = null; let previousReal = null; let previousSpread = null; let previousNominalRealSpread = null;
+    return dates.map(date => {
+      const nominal = nominalByDate.get(date); const realValues = realByDate.get(date);
+      const realTen = realValues?.TC_10YEAR ?? realValues?.BC_10YEAR ?? null;
+      const spread = Number.isFinite(nominal.BC_10YEAR) && Number.isFinite(nominal.BC_2YEAR) ? nominal.BC_10YEAR - nominal.BC_2YEAR : null;
+      const nominalRealSpread = Number.isFinite(nominal.BC_10YEAR) && Number.isFinite(realTen) ? nominal.BC_10YEAR - realTen : null;
+      const values = {
+        "US 2-year yield change": Number.isFinite(nominal.BC_2YEAR) && Number.isFinite(previousNominal?.BC_2YEAR) ? nominal.BC_2YEAR - previousNominal.BC_2YEAR : null,
+        "US 5-year yield change": Number.isFinite(nominal.BC_5YEAR) && Number.isFinite(previousNominal?.BC_5YEAR) ? nominal.BC_5YEAR - previousNominal.BC_5YEAR : null,
+        "US 10-year yield change": Number.isFinite(nominal.BC_10YEAR) && Number.isFinite(previousNominal?.BC_10YEAR) ? nominal.BC_10YEAR - previousNominal.BC_10YEAR : null,
+        "US 30-year yield change": Number.isFinite(nominal.BC_30YEAR) && Number.isFinite(previousNominal?.BC_30YEAR) ? nominal.BC_30YEAR - previousNominal.BC_30YEAR : null,
+        "2s10s curve spread": spread,
+        "2s10s spread change": spread !== null && previousSpread !== null ? spread - previousSpread : null,
+        "10Y nominal yield": nominal.BC_10YEAR ?? null,
+        "10Y real yield": realTen,
+        "10Y real yield change": Number.isFinite(realTen) && Number.isFinite(previousReal) ? realTen - previousReal : null,
+        "10Y nominal-real spread": nominalRealSpread,
+        "10Y nominal-real spread change": nominalRealSpread !== null && previousNominalRealSpread !== null ? nominalRealSpread - previousNominalRealSpread : null,
+      };
+      previousNominal = nominal; previousSpread = spread; previousNominalRealSpread = nominalRealSpread; if (Number.isFinite(realTen)) previousReal = realTen;
+      return { provider: "U.S. Treasury", series: "Daily par yield curves", observationDate: date, fetchedAt: fetchedAtByDate.get(date) || "Fetch timestamp unavailable", values };
+    });
+  }
+
+  function updateTreasuryHistoryStatus(message = "") {
+    const status = $("#treasuryHistoryStatus"); if (!status) return;
+    if (!treasuryHistory.length) { status.textContent = message || "No stored daily history"; return; }
+    const first = treasuryHistory[0].observationDate; const last = treasuryHistory.at(-1).observationDate;
+    status.textContent = `${treasuryHistory.length.toLocaleString()} Treasury observations · ${first} to ${last}${message ? ` · ${message}` : " · saved in this browser"}`;
+  }
+
+  function activateTreasuryFactors(record) {
+    activateFactor("Two-year / ten-year curve spread", record.values["2s10s curve spread"], "percentage points", record);
+    activateFactor("Nominal-real yield divergence", record.values["10Y nominal-real spread"], "percentage points", record);
+    activateFactor("US two-year yield changes", record.values["US 2-year yield change"], "percentage points per Treasury observation", record);
+    activateFactor("US five-year yield changes", record.values["US 5-year yield change"], "percentage points per Treasury observation", record);
+    activateFactor("US ten-year yield changes", record.values["US 10-year yield change"], "percentage points per Treasury observation", record);
+    activateFactor("US thirty-year yield changes", record.values["US 30-year yield change"], "percentage points per Treasury observation", record);
+    activateFactor("Ten-year TIPS real yield changes", record.values["10Y real yield change"], "percentage points per Treasury observation", record);
+  }
+
+  function showLatestTreasuryObservation() {
+    const latest = treasuryHistory.at(-1);
+    if (!latest) return;
+    for (let i = macroObservations.length - 1; i >= 0; i -= 1) if (macroObservations[i].provider === "U.S. Treasury") macroObservations.splice(i, 1);
+    macroObservations.unshift(latest);
+    renderObservations(); renderDrivers(latest); updateResearchBrief(); activateTreasuryFactors(latest);
+    if (factorGroups.length) renderFactors(factorGroups);
+  }
+
+  async function fetchTreasury() {
+    const year = Number($("#treasuryYear").value);
+    setStatus("#treasuryStatus", `Fetching official ${year} XML…`, "working");
+    try {
+      treasuryBuckets[year] = await fetchTreasuryYear(year);
+      persistTreasuryBuckets(); treasuryHistory = buildTreasuryHistory(treasuryBuckets);
+      showLatestTreasuryObservation(); updateTreasuryHistoryStatus();
+      const count = treasuryBuckets[year].nominal.length;
+      setStatus("#treasuryStatus", `${count} ${year} daily yield rows loaded`, "ok");
       $("#sourceOverall").textContent = "TREASURY CONNECTED";
       $("#headerSourceState").innerHTML = "<i></i> Treasury loaded";
     } catch (error) {
       setStatus("#treasuryStatus", `${error.message} Check browser access to home.treasury.gov.`, "error");
       $("#sourceOverall").textContent = "SOURCE UNAVAILABLE";
     }
+  }
+
+  async function fetchTreasuryHistory() {
+    const currentYear = new Date().getUTCFullYear();
+    const years = Array.from({ length: 5 }, (_, index) => currentYear - index).filter(year => !treasuryBuckets[year]);
+    const button = $("#treasuryHistoryFetch"); button.disabled = true;
+    try {
+      for (let index = 0; index < years.length; index += 1) {
+        const year = years[index];
+        updateTreasuryHistoryStatus(`Fetching ${year} (${index + 1}/${years.length})`);
+        treasuryBuckets[year] = await fetchTreasuryYear(year);
+        treasuryHistory = buildTreasuryHistory(treasuryBuckets);
+        persistTreasuryBuckets(); updateTreasuryHistoryStatus(`Fetched through ${year}`);
+      }
+      if (!years.length) updateTreasuryHistoryStatus("Recent five-year window is already cached.");
+      showLatestTreasuryObservation();
+      setStatus("#treasuryStatus", `Research history ready · ${treasuryHistory.length.toLocaleString()} observations`, "ok");
+    } catch (error) {
+      updateTreasuryHistoryStatus(`Partial history retained · ${error.message}`);
+    } finally { button.disabled = false; }
   }
 
   function parseTreasuryXml(xmlText) {
@@ -370,12 +472,23 @@
     const statusSelector = homeOnly ? "#newsStatus" : "#newsStatus";
     if (!homeOnly) setStatus(statusSelector, "Searching GDELT…", "working");
     if (homeOnly) $("#homeNewsList").innerHTML = '<div class="empty-row"><span class="empty-row-icon">…</span><span>Searching GDELT public coverage</span></div>';
+    let proxyError = null;
     try {
       const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
       url.search = new URLSearchParams({ query: query.trim(), mode: "ArtList", format: "json", maxrecords: "50", sort: "DateDesc", timespan });
-      const response = await fetchTimed(url);
-      if (!response.ok) throw new Error(`GDELT returned HTTP ${response.status}.`);
-      const payload = await response.json();
+      let payload;
+      let source = "GDELT DOC 2.0";
+      try {
+        const params = new URLSearchParams({ query: query.trim(), timespan, maxrecords: "50" });
+        payload = await backendFetch(`/api/v1/news?${params}`, 1800);
+        source = `${payload.provider} · local proxy`;
+      } catch (error) {
+        proxyError = error;
+        if (error.status) throw error;
+        const response = await fetchTimed(url, 8000);
+        if (!response.ok) throw new Error(`GDELT returned HTTP ${response.status}.`);
+        payload = await response.json();
+      }
       if (!Array.isArray(payload.articles)) throw new Error("GDELT returned no article list for this query.");
       const results = payload.articles.map(article => {
         const url = String(article.url || "");
@@ -384,9 +497,10 @@
         return { title: article.title || "Untitled article", url, domain, seen: parseGdeltDate(article.seendate), language: article.language || "Unknown", country: article.sourcecountry || "Unknown" };
       }).filter(item => /^https?:/.test(item.url));
       if (homeOnly) renderHomeNews(results.slice(0, 3)); else renderNews(results);
-      setStatus(statusSelector, `${results.length} documents · fetched ${new Date().toISOString().slice(11, 16)} UTC`, "ok");
+      setStatus(statusSelector, `${results.length} documents · ${source} · ${new Date().toISOString().slice(11, 16)} UTC`, "ok");
     } catch (error) {
-      const message = `${error.message} This may be a source outage or browser network restriction.`;
+      const proxyNote = proxyError && proxyError !== error ? ` Local API proxy: ${proxyError.message}.` : "";
+      const message = `${String(error.message).replace(/[.]+$/, "")}.${proxyNote} This may be a source outage or browser network restriction.`;
       if (homeOnly) { $("#homeNewsList").innerHTML = `<div class="empty-row"><span class="empty-row-icon">!</span><span>${escapeHtml(message)}</span></div>`; setStatus(statusSelector, "GDELT unavailable", "error"); }
       else { $("#newsList").innerHTML = `<div class="empty-view"><div class="empty-glyph">!</div><h2>GDELT request failed</h2><p>${escapeHtml(message)}</p></div>`; setStatus(statusSelector, "Unavailable", "error"); }
     }
@@ -495,14 +609,14 @@
     activeFactorValues.set(name.toLowerCase(), { value, unit, provider: record.provider, date: record.observationDate, series: record.series });
   }
 
-  async function fetchTimed(url) {
+  async function fetchTimed(url, timeoutMs = 15000) {
     const controller = new AbortController();
     let timedOut = false;
-    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
     try {
       return await fetch(url, { signal: controller.signal, cache: "no-store" });
     } catch (error) {
-      if (timedOut) throw new Error("Request timed out after 15 seconds.");
+      if (timedOut) throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
       throw error;
     } finally {
       window.clearTimeout(timeout);
@@ -520,7 +634,24 @@
     } catch { return `unavailable-${file.size}-${file.lastModified}`; }
   }
 
-  function makeExamples(horizon, neutralThreshold) {
+  function treasuryFeaturesBefore(priceDate) {
+    if (!treasuryHistory.length || !(priceDate instanceof Date) || Number.isNaN(priceDate.valueOf())) return null;
+    const cutoff = priceDate.toISOString().slice(0, 10);
+    let low = 0; let high = treasuryHistory.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (treasuryHistory[middle].observationDate < cutoff) low = middle + 1;
+      else high = middle;
+    }
+    const record = treasuryHistory[low - 1];
+    if (!record) return null;
+    const features = TREASURY_FEATURE_NAMES.map(name => record.values[name]);
+    return features.every(Number.isFinite) ? { features, sourceDate: record.observationDate } : null;
+  }
+
+  const PRICE_FEATURE_NAMES = ["1-bar log return", "2-bar cumulative log return", "5-bar cumulative log return", "20-bar realized volatility", "20-bar cumulative return"];
+
+  function makeExamples(horizon, neutralThreshold, inputs) {
     const rows = imported.rows;
     const returns = rows.map((row, index) => index ? Math.log(row.close / rows[index - 1].close) : 0);
     const examples = [];
@@ -534,14 +665,19 @@
       const trend20 = rows[i].close / rows[i - 20].close - 1;
       const move = rows[i + horizon].close - rows[i].close;
       const label = move > neutralThreshold ? 2 : move < -neutralThreshold ? 0 : 1;
-      examples.push({ i, x: [r1, r2, r5, vol, trend20], y: label, move });
+      const x = [r1, r2, r5, vol, trend20];
+      const macro = inputs === "treasury" ? treasuryFeaturesBefore(rows[i].date) : null;
+      if (inputs === "treasury" && !macro) continue;
+      if (macro) x.push(...macro.features);
+      examples.push({ i, x, y: label, move, macroSourceDate: macro?.sourceDate || null });
     }
     return examples;
   }
 
   function scalerFor(examples) {
     const count = examples.length;
-    const means = Array.from({ length: 5 }, (_, j) => examples.reduce((sum, row) => sum + row.x[j], 0) / count);
+    const dimensions = examples[0]?.x.length || 0;
+    const means = Array.from({ length: dimensions }, (_, j) => examples.reduce((sum, row) => sum + row.x[j], 0) / count);
     const scales = means.map((mean, j) => Math.sqrt(examples.reduce((sum, row) => sum + (row.x[j] - mean) ** 2, 0) / Math.max(1, count - 1)) || 1);
     return { means, scales };
   }
@@ -558,7 +694,7 @@
   }
 
   function fitSoftmax(examples, scaler) {
-    const d = 6;
+    const d = scaler.means.length + 1;
     const weights = Array.from({ length: 3 }, () => Array(d).fill(0));
     const epochs = 180;
     const learningRate = 0.055;
@@ -636,7 +772,11 @@
       window.alert("The selected instrument changed after import. Re-import its price file so the study cannot silently relabel another instrument."); return;
     }
     const effectiveBand = Math.max(band, cost);
-    const examples = makeExamples(horizon, effectiveBand);
+    const inputs = $("#studyInputs").value;
+    if (inputs === "treasury" && !treasuryHistory.length) {
+      renderStudyError("Fetch five years of U.S. Treasury history before choosing the Treasury feature set. No values are substituted when the source is missing."); return;
+    }
+    const examples = makeExamples(horizon, effectiveBand, inputs);
     const n = examples.length;
     const calibrationSize = Math.max(30, Math.floor(n * 0.1));
     const testSize = Math.max(30, Math.floor(n * 0.1));
@@ -678,11 +818,17 @@
     const passes = enoughHoldout && beatsBaseline;
     const finalTraining = examples.slice(0, Math.max(1, n - horizon));
     const latestFeature = currentFeatures(imported.rows);
+    const latestTreasury = inputs === "treasury" ? treasuryFeaturesBefore(imported.rows.at(-1).date) : null;
+    if (inputs === "treasury" && !latestTreasury) {
+      renderStudyError("No complete Treasury observation exists strictly before the latest price row. Fetch the matching years or use the price-only baseline."); return;
+    }
+    if (latestTreasury) latestFeature.push(...latestTreasury.features);
     const finalFit = trainProbabilities(finalTraining, [{ x: latestFeature, y: 1 }]);
     const meanTemperature = foldReports.reduce((sum, report) => sum + report.temperature, 0) / foldReports.length;
     const forecast = temperatureScale(finalFit.probabilities[0], meanTemperature);
-    const report = { horizon, band, cost, effectiveBand, n, folds: foldReports.length, tests: allTests.length, metrics, brierSkill, passes, forecast, temperature: meanTemperature, fingerprint: imported.fingerprint, filename: imported.filename, instrument: imported.instrument, first: imported.rows[0].date.toISOString().slice(0, 10), last: imported.rows.at(-1).date.toISOString().slice(0, 10), foldsDetail: foldReports };
+    const report = { horizon, inputs, featureNames: inputs === "treasury" ? [...PRICE_FEATURE_NAMES, ...TREASURY_FEATURE_NAMES] : PRICE_FEATURE_NAMES, treasuryLag: inputs === "treasury" ? "latest official observation strictly earlier than each price date" : null, latestTreasurySourceDate: latestTreasury?.sourceDate || null, band, cost, effectiveBand, n, folds: foldReports.length, tests: allTests.length, metrics, brierSkill, passes, forecast, temperature: meanTemperature, fingerprint: imported.fingerprint, filename: imported.filename, instrument: imported.instrument, first: imported.rows[0].date.toISOString().slice(0, 10), last: imported.rows.at(-1).date.toISOString().slice(0, 10), foldsDetail: foldReports };
     window.catalystLastStudy = report;
+    saveStudy(report);
     renderStudy(report);
   }
 
@@ -711,21 +857,57 @@
 
   function renderStudy(report) {
     const metric = report.metrics;
-    const badge = report.passes ? "EXPERIMENTAL EDGE" : "ABSTAIN · GATE FAILED";
+    const badge = report.passes ? "EXPERIMENTAL · GATE PASSED" : "ABSTAIN · GATE FAILED";
     $("#modelStatus").textContent = badge;
     const classes = ["Bearish", "Neutral", "Bullish"];
     const percent = value => `${(100 * value).toFixed(1)}%`;
     const forecasts = classes.map((name, i) => `<div class="forecast-class"><span>${name}</span><strong>${percent(report.forecast[i])}</strong></div>`).join("");
-    $("#forecastUnavailableTitle").textContent = report.passes ? "Experimental price-only study passed its holdout gate" : "Insufficient evidence for a directional forecast";
+    $("#forecastUnavailableTitle").textContent = report.passes ? "Experimental study passed its holdout gate" : "Insufficient evidence for a directional forecast";
     $("#forecastUnavailableReason").textContent = report.passes
-      ? "This result uses only the selected historical price series. It is not a macro/news forecast or proof of tradable performance. Review holdout metrics and fold dates in Model Lab."
+      ? report.inputs === "treasury" ? "This exploratory result uses prior prices and Treasury observations dated before each price row. It is not a point-in-time or news-driven macro forecast, and does not establish tradable performance. Review dates and metrics in Model Lab." : "This result uses only the selected historical price series. It is not a macro/news forecast or proof of tradable performance. Review holdout metrics and fold dates in Model Lab."
       : report.tests < 100
         ? `The study has ${report.tests} unseen outcomes; at least 100 are required. No directional probability is shown.`
         : "The calibrated price-only baseline did not beat its training class-prior Brier benchmark. No directional probability is shown.";
     const rows = report.foldsDetail.map(fold => `<tr><td>${fold.fold}</td><td>${fold.train.toLocaleString()}<small>${fold.trainDates[0]}–${fold.trainDates[1]}</small></td><td>${fold.calibration.toLocaleString()}<small>${fold.calibrationDates[0]}–${fold.calibrationDates[1]}</small></td><td>${fold.test.toLocaleString()}<small>${fold.testDates[0]}–${fold.testDates[1]}</small></td><td>${fold.temperature.toFixed(2)}</td><td>${fold.metrics.brier.toFixed(3)}</td></tr>`).join("");
-    $("#studyResults").innerHTML = `<section class="panel study-outcome"><div class="panel-heading"><div><div class="eyebrow">NEXT ${report.horizon} BAR${report.horizon === 1 ? "" : "S"} · ${escapeHtml(report.instrument)}</div><h2>${report.passes ? "Experimental price-only probabilities" : "Forecast withheld by evaluation gate"}</h2></div><span class="status-tag ${report.passes ? "positive" : "neutral"}">${badge}</span></div><div class="study-warning">One user-supplied price series · no macro or news inputs · not a live or institutional forecast.</div>${report.passes ? `<div class="forecast-classes">${forecasts}</div>` : `<div class="abstain-reason">${report.tests < 100 ? `Holdout has ${report.tests} outcomes; minimum gate is 100.` : "Calibrated model did not beat the training base-rate benchmark on multiclass Brier score."} Directional probabilities are suppressed.</div>`}<div class="metric-grid"><div><span>Walk-forward outcomes</span><strong>${report.tests.toLocaleString()}</strong></div><div><span>Multiclass Brier</span><strong>${metric.brier.toFixed(4)}</strong></div><div><span>Base-rate Brier</span><strong>${metric.baselineBrier.toFixed(4)}</strong></div><div><span>Brier skill vs base rate</span><strong>${percent(report.brierSkill)}</strong></div><div><span>Balanced accuracy</span><strong>${percent(metric.balancedAccuracy)}</strong></div><div><span>Log loss</span><strong>${metric.logLoss.toFixed(4)}</strong></div></div><div class="class-counts">Test outcomes: Bearish ${metric.counts[0]} · Neutral ${metric.counts[1]} · Bullish ${metric.counts[2]} · Coverage 100% (no abstentions in test)</div></section><section class="panel fold-panel"><div class="panel-heading"><div><div class="eyebrow">CHRONOLOGICAL FOLDS</div><h2>Expanding-window evaluation</h2></div><button class="text-button" id="downloadStudy">Download report JSON ↓</button></div><div class="table-scroll"><table><thead><tr><th>Fold</th><th>Train</th><th>Calibrate</th><th>Test</th><th>Temp.</th><th>Brier</th></tr></thead><tbody>${rows}</tbody></table></div><div class="study-provenance">Dataset SHA-256 ${escapeHtml(report.fingerprint)} · ${escapeHtml(report.filename)} · ${report.first} to ${report.last} · horizon in bars · neutral band ${report.effectiveBand} price units · model softmax-price-v1 / L2=0.01 / 180 epochs</div></section>`;
+    const modelName = report.inputs === "treasury" ? "softmax-price-treasury-v1" : "softmax-price-v1";
+    const inputDescription = report.inputs === "treasury" ? "Price history plus five prior-date Treasury features. Release timestamps and vintages are unavailable; this is not a validated macro/news forecast." : "One user-supplied price series; no macro/news inputs; not a live or institutional forecast.";
+    $("#studyResults").innerHTML = `<section class="panel study-outcome"><div class="panel-heading"><div><div class="eyebrow">NEXT ${report.horizon} BAR${report.horizon === 1 ? "" : "S"} · ${escapeHtml(report.instrument)} · ${report.inputs === "treasury" ? "PRICE + TREASURY" : "PRICE ONLY"}</div><h2>${report.passes ? "Experimental probabilities" : "Forecast withheld by evaluation gate"}</h2></div><span class="status-tag ${report.passes ? "positive" : "neutral"}">${badge}</span></div><div class="study-warning">${inputDescription}</div>${report.passes ? `<div class="forecast-classes">${forecasts}</div>` : `<div class="abstain-reason">${report.tests < 100 ? `Holdout has ${report.tests} outcomes; minimum gate is 100.` : "Calibrated model did not beat the training class-prior Brier benchmark on multiclass Brier score."} Directional probabilities are suppressed.</div>`}<div class="metric-grid"><div><span>Walk-forward outcomes</span><strong>${report.tests.toLocaleString()}</strong></div><div><span>Multiclass Brier</span><strong>${metric.brier.toFixed(4)}</strong></div><div><span>Base-rate Brier</span><strong>${metric.baselineBrier.toFixed(4)}</strong></div><div><span>Brier skill vs base rate</span><strong>${percent(report.brierSkill)}</strong></div><div><span>Balanced accuracy</span><strong>${percent(metric.balancedAccuracy)}</strong></div><div><span>Log loss</span><strong>${metric.logLoss.toFixed(4)}</strong></div></div><div class="class-counts">Test outcomes: Bearish ${metric.counts[0]} · Neutral ${metric.counts[1]} · Bullish ${metric.counts[2]} · Coverage 100% (no abstentions in test)</div></section><section class="panel fold-panel"><div class="panel-heading"><div><div class="eyebrow">CHRONOLOGICAL FOLDS</div><h2>Expanding-window evaluation</h2></div><button class="text-button" id="downloadStudy">Download report JSON ↓</button></div><div class="table-scroll"><table><thead><tr><th>Fold</th><th>Train</th><th>Calibrate</th><th>Test</th><th>Temp.</th><th>Brier</th></tr></thead><tbody>${rows}</tbody></table></div><div class="study-provenance">Dataset SHA-256 ${escapeHtml(report.fingerprint)} · ${escapeHtml(report.filename)} · ${report.first} to ${report.last} · horizon in bars · neutral band ${report.effectiveBand} price units · ${modelName} / L2=0.01 / 180 epochs${report.latestTreasurySourceDate ? ` · Latest Treasury feature ${escapeHtml(report.latestTreasurySourceDate)}` : ""}</div></section>`;
     $("#downloadStudy").addEventListener("click", () => downloadJson(report));
     updateForecastReadout(report);
+  }
+
+  function readStudyHistory() {
+    try {
+      const value = JSON.parse(localStorage.getItem(STUDY_HISTORY_KEY) || "[]");
+      return Array.isArray(value) ? value.filter(item => item && typeof item === "object" && item.metrics && item.instrument) : [];
+    } catch { return []; }
+  }
+
+  function saveStudy(report) {
+    const record = { ...report, generatedAt: new Date().toISOString(), model: report.inputs === "treasury" ? "softmax-price-treasury-v1" : "softmax-price-v1" };
+    try {
+      const history = [record, ...readStudyHistory()].slice(0, 50);
+      localStorage.setItem(STUDY_HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      // The downloadable report remains available when browser storage is disabled or full.
+    }
+  }
+
+  function renderHistory() {
+    const target = $("#historyList");
+    if (!target) return;
+    const history = readStudyHistory();
+    if (!history.length) {
+      target.innerHTML = '<section class="panel empty-view"><div class="empty-glyph">⌁</div><h2>No local study records</h2><p>Run a walk-forward study in Model Lab. Reports are saved only in this browser and can be downloaded as JSON.</p><div class="source-list"><span>Record contents</span><strong>Dataset digest · date splits · model version · metrics · abstention result</strong></div></section>';
+      return;
+    }
+    target.innerHTML = history.map((item, index) => {
+      const status = item.passes ? "Experimental gate passed" : "Abstained";
+      const metric = item.metrics || {};
+      const inputLabel = item.inputs === "treasury" ? "Price + lagged Treasury" : "Price-only baseline";
+      return `<article class="panel history-record"><div class="panel-heading"><div><div class="eyebrow">${escapeHtml(item.instrument)} · NEXT ${Number(item.horizon) || "—"} BARS · ${inputLabel}</div><h2>${escapeHtml(item.filename || "Imported series")}</h2></div><span class="status-tag neutral">${status}</span></div><div class="history-meta"><span>${escapeHtml(item.first || "?")} → ${escapeHtml(item.last || "?")}</span><span>${Number(item.tests) || 0} holdout outcomes</span><span>Saved ${escapeHtml(item.generatedAt || "time unavailable")}</span></div><div class="metric-grid"><div><span>Multiclass Brier</span><strong>${Number.isFinite(metric.brier) ? metric.brier.toFixed(4) : "—"}</strong></div><div><span>Base-rate Brier</span><strong>${Number.isFinite(metric.baselineBrier) ? metric.baselineBrier.toFixed(4) : "—"}</strong></div><div><span>Balanced accuracy</span><strong>${Number.isFinite(metric.balancedAccuracy) ? `${(metric.balancedAccuracy * 100).toFixed(1)}%` : "—"}</strong></div><div><span>Log loss</span><strong>${Number.isFinite(metric.logLoss) ? metric.logLoss.toFixed(4) : "—"}</strong></div></div><div class="study-provenance">${escapeHtml(item.model || "softmax-price-v1")} · SHA-256 ${escapeHtml(item.fingerprint || "unavailable")} · ${Number(item.folds) || 0} chronological folds${item.latestTreasurySourceDate ? ` · Latest Treasury feature ${escapeHtml(item.latestTreasurySourceDate)}` : ""}</div><button class="text-button" data-download-study="${index}">Download report JSON ↓</button></article>`;
+    }).join("");
+    $$('[data-download-study]').forEach(button => button.addEventListener("click", () => downloadJson(history[Number(button.dataset.downloadStudy)])));
   }
 
   function updateForecastReadout(report) {
@@ -736,11 +918,14 @@
       return;
     }
     const percent = value => `${(100 * value).toFixed(1)}%`;
-    box.innerHTML = `<div><span class="readout-label">Experimental price-only model</span><strong>${escapeHtml(report.instrument)} · next ${report.horizon} bar${report.horizon === 1 ? "" : "s"}</strong></div><span class="model-chip">HOLDOUT GATE PASSED</span><p>Bearish ${percent(report.forecast[0])} · Neutral ${percent(report.forecast[1])} · Bullish ${percent(report.forecast[2])}. User CSV only; not a macro forecast.</p>`;
+    const label = report.inputs === "treasury" ? "Experimental price + Treasury model" : "Experimental price-only model";
+    const boundary = report.inputs === "treasury" ? `Treasury source date ${report.latestTreasurySourceDate}; still not a validated macro/news forecast.` : "User CSV only; not a macro forecast.";
+    box.innerHTML = `<div><span class="readout-label">${label}</span><strong>${escapeHtml(report.instrument)} · next ${report.horizon} bar${report.horizon === 1 ? "" : "s"}</strong></div><span class="model-chip">HOLDOUT GATE PASSED</span><p>Bearish ${percent(report.forecast[0])} · Neutral ${percent(report.forecast[1])} · Bullish ${percent(report.forecast[2])}. ${boundary}</p>`;
   }
 
   function downloadJson(report) {
-    const blob = new Blob([JSON.stringify({ ...report, generatedAt: new Date().toISOString(), model: { name: "softmax-price-v1", features: ["1-bar log return", "2-bar log return", "5-bar log return", "20-bar realized volatility", "20-bar cumulative return"], calibration: "temperature fitted on prior calibration slice per fold", limitations: "single supplied close series; no macro/news data; bar frequency unverified; no fees/slippage beyond configured neutral band" } }, null, 2)], { type: "application/json" });
+    const isTreasury = report.inputs === "treasury";
+    const blob = new Blob([JSON.stringify({ ...report, generatedAt: report.generatedAt || new Date().toISOString(), model: { name: isTreasury ? "softmax-price-treasury-v1" : "softmax-price-v1", features: report.featureNames || PRICE_FEATURE_NAMES, calibration: "temperature fitted on prior calibration slice per fold", limitations: isTreasury ? "user-supplied price series plus daily Treasury observations dated before each price row; availability time and point-in-time vintage unknown; not a validated macro/news model" : "single supplied close series; no macro/news data; bar frequency unverified; no fees/slippage beyond configured neutral band" } }, null, 2)], { type: "application/json" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `catalyst-study-${report.instrument}-${report.last}.json`; link.click(); URL.revokeObjectURL(link.href);
   }
 
