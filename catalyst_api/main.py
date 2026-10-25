@@ -205,7 +205,7 @@ async def request_gdelt(query: str, timespan: str, max_records: int) -> dict[str
         "mode": "ArtList",
         "format": "json",
         "maxrecords": max_records,
-        "sort": "DateDesc",
+        "sort": "HybridRel",
         "timespan": timespan,
     }
     async with _gdelt_lock:

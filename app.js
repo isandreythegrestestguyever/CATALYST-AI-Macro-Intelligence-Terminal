@@ -177,8 +177,8 @@
     return url.origin + url.pathname.replace(/\/$/, "");
   }
 
-  async function backendFetch(path) {
-    const response = await fetchTimed(`${apiBase()}${path}`);
+  async function backendFetch(path, timeoutMs = 12000) {
+    const response = await fetchTimed(`${apiBase()}${path}`, timeoutMs);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = typeof payload.detail === "string" ? payload.detail : payload.detail?.message || JSON.stringify(payload.detail || `HTTP ${response.status}`);
@@ -475,7 +475,7 @@
     let proxyError = null;
     try {
       const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
-      url.search = new URLSearchParams({ query: query.trim(), mode: "ArtList", format: "json", maxrecords: "50", sort: "DateDesc", timespan });
+      url.search = new URLSearchParams({ query: query.trim(), mode: "ArtList", format: "json", maxrecords: "50", sort: "HybridRel", timespan });
       let payload;
       let source = "GDELT DOC 2.0";
       try {
