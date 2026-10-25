@@ -148,8 +148,8 @@
         : "Public feeds unavailable · retry or check source status";
     }
     $("#sourceOverall").textContent = providers.length
-      ? `${providers.length} PUBLIC SOURCE${providers.length === 1 ? "" : "S"} CONNECTED`
-      : "PUBLIC FEEDS UNAVAILABLE";
+      ? `${providers.length} public source${providers.length === 1 ? "" : "s"} connected`
+      : "Public feeds unavailable";
     $("#headerSourceState").innerHTML = `<i></i> ${providers.length ? `${providers.join(" + ")} updated` : "Public sources unavailable"}`;
   }
 
@@ -246,7 +246,7 @@
       imported = { rows, filename: descriptor, instrument: response.instrument, fingerprint, provider: response.provider, sourceSchema: response.schema };
       updateImportedView(descriptor);
       setStatus("#marketHistoryStatus", `${rows.length.toLocaleString()} dated bars loaded · fetched ${response.fetched_at} · ${response.freshness} ${response.price_adjustment}`, "ok");
-      $("#sourceOverall").textContent = "DATABENTO HISTORY LOADED";
+      $("#sourceOverall").textContent = "Databento history loaded";
       $("#headerSourceState").innerHTML = "<i></i> Historical bars loaded";
       lastMarketEstimate = null;
     } catch (error) {
@@ -352,11 +352,11 @@
       showLatestTreasuryObservation(); updateTreasuryHistoryStatus();
       const count = treasuryBuckets[year].nominal.length;
       setStatus("#treasuryStatus", `${count} ${year} daily yield rows loaded`, "ok");
-      $("#sourceOverall").textContent = "TREASURY CONNECTED";
+      $("#sourceOverall").textContent = "Treasury connected";
       $("#headerSourceState").innerHTML = "<i></i> Treasury loaded";
     } catch (error) {
       setStatus("#treasuryStatus", `${error.message} Check browser access to home.treasury.gov.`, "error");
-      $("#sourceOverall").textContent = "SOURCE UNAVAILABLE";
+      $("#sourceOverall").textContent = "Source unavailable";
     }
   }
 
@@ -434,11 +434,11 @@
         if (factorGroups.length) renderFactors(factorGroups);
       }
       setStatus("#fredStatus", `${series} loaded · observation ${latest.date} · ${observations.length} values`, "ok");
-      $("#sourceOverall").textContent = "FRED CONNECTED";
+      $("#sourceOverall").textContent = "FRED connected";
       $("#headerSourceState").innerHTML = "<i></i> FRED loaded";
     } catch (error) {
       setStatus("#fredStatus", `${error.message} Your key is kept only in this tab's memory.`, "error");
-      $("#sourceOverall").textContent = "SOURCE UNAVAILABLE";
+      $("#sourceOverall").textContent = "Source unavailable";
     }
   }
 
@@ -871,7 +871,7 @@
     const rows = report.foldsDetail.map(fold => `<tr><td>${fold.fold}</td><td>${fold.train.toLocaleString()}<small>${fold.trainDates[0]}–${fold.trainDates[1]}</small></td><td>${fold.calibration.toLocaleString()}<small>${fold.calibrationDates[0]}–${fold.calibrationDates[1]}</small></td><td>${fold.test.toLocaleString()}<small>${fold.testDates[0]}–${fold.testDates[1]}</small></td><td>${fold.temperature.toFixed(2)}</td><td>${fold.metrics.brier.toFixed(3)}</td></tr>`).join("");
     const modelName = report.inputs === "treasury" ? "softmax-price-treasury-v1" : "softmax-price-v1";
     const inputDescription = report.inputs === "treasury" ? "Price history plus five prior-date Treasury features. Release timestamps and vintages are unavailable; this is not a validated macro/news forecast." : "One user-supplied price series; no macro/news inputs; not a live or institutional forecast.";
-    $("#studyResults").innerHTML = `<section class="panel study-outcome"><div class="panel-heading"><div><div class="eyebrow">NEXT ${report.horizon} BAR${report.horizon === 1 ? "" : "S"} · ${escapeHtml(report.instrument)} · ${report.inputs === "treasury" ? "PRICE + TREASURY" : "PRICE ONLY"}</div><h2>${report.passes ? "Experimental probabilities" : "Forecast withheld by evaluation gate"}</h2></div><span class="status-tag ${report.passes ? "positive" : "neutral"}">${badge}</span></div><div class="study-warning">${inputDescription}</div>${report.passes ? `<div class="forecast-classes">${forecasts}</div>` : `<div class="abstain-reason">${report.tests < 100 ? `Holdout has ${report.tests} outcomes; minimum gate is 100.` : "Calibrated model did not beat the training class-prior Brier benchmark on multiclass Brier score."} Directional probabilities are suppressed.</div>`}<div class="metric-grid"><div><span>Walk-forward outcomes</span><strong>${report.tests.toLocaleString()}</strong></div><div><span>Multiclass Brier</span><strong>${metric.brier.toFixed(4)}</strong></div><div><span>Base-rate Brier</span><strong>${metric.baselineBrier.toFixed(4)}</strong></div><div><span>Brier skill vs base rate</span><strong>${percent(report.brierSkill)}</strong></div><div><span>Balanced accuracy</span><strong>${percent(metric.balancedAccuracy)}</strong></div><div><span>Log loss</span><strong>${metric.logLoss.toFixed(4)}</strong></div></div><div class="class-counts">Test outcomes: Bearish ${metric.counts[0]} · Neutral ${metric.counts[1]} · Bullish ${metric.counts[2]} · Coverage 100% (no abstentions in test)</div></section><section class="panel fold-panel"><div class="panel-heading"><div><div class="eyebrow">CHRONOLOGICAL FOLDS</div><h2>Expanding-window evaluation</h2></div><button class="text-button" id="downloadStudy">Download report JSON ↓</button></div><div class="table-scroll"><table><thead><tr><th>Fold</th><th>Train</th><th>Calibrate</th><th>Test</th><th>Temp.</th><th>Brier</th></tr></thead><tbody>${rows}</tbody></table></div><div class="study-provenance">Dataset SHA-256 ${escapeHtml(report.fingerprint)} · ${escapeHtml(report.filename)} · ${report.first} to ${report.last} · horizon in bars · neutral band ${report.effectiveBand} price units · ${modelName} / L2=0.01 / 180 epochs${report.latestTreasurySourceDate ? ` · Latest Treasury feature ${escapeHtml(report.latestTreasurySourceDate)}` : ""}</div></section>`;
+    $("#studyResults").innerHTML = `<section class="panel study-outcome"><div class="panel-heading"><div><div class="eyebrow">NEXT ${report.horizon} BAR${report.horizon === 1 ? "" : "S"} · ${escapeHtml(report.instrument)} · ${report.inputs === "treasury" ? "PRICE + TREASURY" : "PRICE ONLY"}</div><h2>${report.passes ? "Experimental probabilities" : "Forecast withheld by evaluation gate"}</h2></div><span class="status-tag ${report.passes ? "positive" : "neutral"}">${badge}</span></div><div class="study-warning">${inputDescription}</div>${report.passes ? `<div class="forecast-classes">${forecasts}</div>` : `<div class="abstain-reason">${report.tests < 100 ? `Holdout has ${report.tests} outcomes; minimum gate is 100.` : "Calibrated model did not beat the training class-prior Brier benchmark on multiclass Brier score."} Directional probabilities are suppressed.</div>`}<div class="metric-grid"><div><span>Walk-forward outcomes</span><strong>${report.tests.toLocaleString()}</strong></div><div><span>Multiclass Brier</span><strong>${metric.brier.toFixed(4)}</strong></div><div><span>Base-rate Brier</span><strong>${metric.baselineBrier.toFixed(4)}</strong></div><div><span>Brier skill vs base rate</span><strong>${percent(report.brierSkill)}</strong></div><div><span>Balanced accuracy</span><strong>${percent(metric.balancedAccuracy)}</strong></div><div><span>Log loss</span><strong>${metric.logLoss.toFixed(4)}</strong></div></div><div class="class-counts">Test outcomes: Bearish ${metric.counts[0]} · Neutral ${metric.counts[1]} · Bullish ${metric.counts[2]} · Coverage 100% (no abstentions in test)</div></section><section class="panel fold-panel"><div class="panel-heading"><div><div class="eyebrow">Walk-forward folds</div><h2>Expanding-window evaluation</h2></div><button class="text-button" id="downloadStudy">Download report JSON ↓</button></div><div class="table-scroll"><table><thead><tr><th>Fold</th><th>Train</th><th>Calibrate</th><th>Test</th><th>Temp.</th><th>Brier</th></tr></thead><tbody>${rows}</tbody></table></div><div class="study-provenance">Dataset SHA-256 ${escapeHtml(report.fingerprint)} · ${escapeHtml(report.filename)} · ${report.first} to ${report.last} · horizon in bars · neutral band ${report.effectiveBand} price units · ${modelName} / L2=0.01 / 180 epochs${report.latestTreasurySourceDate ? ` · Latest Treasury feature ${escapeHtml(report.latestTreasurySourceDate)}` : ""}</div></section>`;
     $("#downloadStudy").addEventListener("click", () => downloadJson(report));
     updateForecastReadout(report);
   }
@@ -914,7 +914,7 @@
     const box = $(".forecast-box");
     if (!box) return;
     if (!report.passes) {
-      box.innerHTML = '<div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">MODEL NOT VALIDATED</span><p>The current study failed its predefined sample or benchmark gate. Directional probabilities are suppressed.</p>';
+      box.innerHTML = '<div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">Model not validated</span><p>The current study failed its predefined sample or benchmark gate. Directional probabilities are suppressed.</p>';
       return;
     }
     const percent = value => `${(100 * value).toFixed(1)}%`;
@@ -987,11 +987,11 @@
 
   function clearCurrentStudy(message) {
     window.catalystLastStudy = null;
-    $("#modelStatus").textContent = "NO STUDY";
+    $("#modelStatus").textContent = "No study";
     $("#forecastUnavailableTitle").textContent = "Price history loaded; forecast still unavailable";
     $("#forecastUnavailableReason").textContent = `${message} A directional forecast appears only if the chronological holdout contains at least 100 outcomes and beats its baseline.`;
     $("#studyResults").innerHTML = `<section class="panel empty-view"><div class="empty-glyph">⌁</div><h2>Run a new study for this file</h2><p>${escapeHtml(message)}</p></section>`;
-    $(".forecast-box").innerHTML = '<div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">MODEL NOT VALIDATED</span><p>Outcome probabilities will appear only after instrument-specific training, chronological evaluation, and calibration.</p>';
+    $(".forecast-box").innerHTML = '<div><span class="readout-label">Directional forecast</span><strong>Abstaining</strong></div><span class="model-chip">Model not validated</span><p>Outcome probabilities will appear only after instrument-specific training, chronological evaluation, and calibration.</p>';
   }
 
   function drawChart() {
