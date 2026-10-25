@@ -480,7 +480,7 @@
       let source = "GDELT DOC 2.0";
       try {
         const params = new URLSearchParams({ query: query.trim(), timespan, maxrecords: "50" });
-        payload = await backendFetch(`/api/v1/news?${params}`, 1800);
+        payload = await backendFetch(`/api/v1/news?${params}`, 15000);
         source = `${payload.provider} · local proxy`;
       } catch (error) {
         proxyError = error;
