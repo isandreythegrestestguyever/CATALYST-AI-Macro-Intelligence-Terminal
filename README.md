@@ -9,6 +9,7 @@ The app does not invent a price, market regime, or probability. Its forecast beg
 ## What works
 
 - The overview now automatically requests the current-year U.S. Treasury nominal/real yield curves and GDELT public coverage on page load. **Refresh evidence** reruns both, and the page reports which source succeeded instead of leaving a blank dashboard. Provider outage or browser CORS restrictions remain visible.
+- The overview displays dated Treasury yield changes as macro context. It does not mistake rates data for NQ/GC prices. CME's public quote page is delayed by at least 10 minutes and is a human-facing quote display, not this app's historical data feed. CME's documented website API requires OAuth entitlement and an active public-website redistribution license; do not scrape it. Use the Databento history connector or import a dated CSV you are licensed to use.
 - GDELT public-document search, with source links, publisher, country/language, and GDELT's seen time. Coverage is not treated as fact verification or market impact.
 - U.S. Treasury daily nominal and real yield curves, with dated values, derived curve spreads, and daily changes.
 - FRED observations and release dates using a user-owned key entered in the browser. The page sends it to FRED and keeps it in tab memory; current FRED observations are not reconstructed ALFRED vintages.
@@ -40,7 +41,7 @@ The app does not invent a price, market regime, or probability. Its forecast beg
 
 Alternatively, use `docker compose up --build` after creating `.env`.
 
-Databento historical access requires an account and API key. New accounts currently receive introductory data credits, but check your account's available balance, dataset costs, and licensing terms before downloading. This connector retrieves history; it does not provide a live stream. See the [official Databento quickstart](https://databento.com/docs/quickstart) and [historical API](https://databento.com/docs/api-historical?lang=python).
+Databento historical access requires an account and API key. Check your account's available balance, dataset costs, and licensing terms before downloading. This connector retrieves history; it does not provide a live stream. See the [official Databento quickstart](https://databento.com/docs/quickstart) and [historical API](https://databento.com/docs/api-historical?lang=python). CME's [public delayed quotes](https://www.cmegroup.com/market-data/browse-data/delayed-quotes.html) are delayed at least 10 minutes. Its [F&O website data API documentation](https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/1892122625/CME+Group+Futures+and+Options+Website+Information+REST+API) says OAuth onboarding and redistribution licensing are required, so the public quote display is not an interchangeable programmatic history source.
 
 ## Model Lab
 

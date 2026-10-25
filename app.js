@@ -497,9 +497,13 @@
 
   async function fetchTimed(url) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    let timedOut = false;
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
     try {
       return await fetch(url, { signal: controller.signal, cache: "no-store" });
+    } catch (error) {
+      if (timedOut) throw new Error("Request timed out after 15 seconds.");
+      throw error;
     } finally {
       window.clearTimeout(timeout);
     }
