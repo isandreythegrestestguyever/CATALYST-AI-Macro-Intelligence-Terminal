@@ -25,6 +25,34 @@ jobs:
         uses: actions/checkout@v4
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Version static assets for this deployment
+        env:
+          ASSET_VERSION: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ["ASSET_VERSION"][:12]
+          page = Path("index.html")
+          html = page.read_text()
+          replacements = {
+              'href="styles.css"': f'href="styles.css?v={version}"',
+              'src="app.js"': f'src="app.js?v={version}"',
+          }
+          for old, new in replacements.items():
+              if old not in html:
+                  raise SystemExit(f"Expected asset reference not found: {old}")
+              html = html.replace(old, new)
+          page.write_text(html)
+
+          app = Path("app.js")
+          script = app.read_text()
+          old = 'fetch("data/factors.json")'
+          if old not in script:
+              raise SystemExit(f"Expected registry reference not found: {old}")
+          app.write_text(script.replace(old, f'fetch("data/factors.json?v={version}")'))
+          PY
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
